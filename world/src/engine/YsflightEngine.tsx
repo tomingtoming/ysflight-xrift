@@ -18,6 +18,7 @@ import { useXRift } from '@xrift/world-components'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BoxGeometry, Camera, Mesh, MeshBasicMaterial, Vector2, Vector4, WebGLRenderer } from 'three'
 import { createEngine } from './loadEngine'
+import { setEngine } from './engineStore'
 import { subscribeKeys } from './keyBridge'
 import type { YsflightModule } from './types'
 
@@ -26,7 +27,7 @@ export interface YsflightEngineProps {
   args: string[]
   /** Forward window keyboard events to the engine (default true). */
   keyboard?: boolean
-  onReady?: (mod: YsflightModule) => void
+  onReady?: () => void
 }
 
 
@@ -63,13 +64,15 @@ export function YsflightEngine({ args, keyboard = true, onReady }: YsflightEngin
         m.HEAPF32[ext + 1] = 0
         modRef.current = m
         setMod(m)
-        onReady?.(m)
+        setEngine(m)
+        onReady?.()
         ;(window as unknown as { __ysfx?: unknown }).__ysfx = m
         console.log('[ysf] engine ready')
       })
       .catch((e) => console.error('[ysf] boot failed', e))
     return () => {
       cancelled = true
+      setEngine(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -96,11 +99,23 @@ export function YsflightEngine({ args, keyboard = true, onReady }: YsflightEngin
   }, [mod, keyboard])
 
   // ---- simulation step ----------------------------------------------------
+  const bootFrames = useRef(0)
   useFrame(() => {
     const m = modRef.current
     if (!m) return
     const size = gl.getDrawingBufferSize(sizeRef.current)
     m._YsfxSetWindowSize(size.x, size.y)
+    // Start-up choreography: the engine's pre-flight "CENTER JOYSTICK" prompt
+    // accepts the VR trigger (control block [7]); hold it for a moment, release,
+    // then switch to the outside view so the player's own aircraft is drawn.
+    const n = bootFrames.current++
+    const ctl = m._FsVrControlDataPointer() >> 2
+    if (n < 240) m.HEAPF32[ctl + 7] = n > 60 && n < 150 ? 1 : 0
+    if (n === 240) {
+      const key = m.cwrap('YsfxKeyByCode', 'number', ['string', 'number'])
+      key('F2', 1)
+      key('F2', 0)
+    }
     m._YsfxInterval()
   })
 

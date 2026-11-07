@@ -1,5 +1,6 @@
 import { SpawnPoint } from '@xrift/world-components'
 import { CuboidCollider, RigidBody } from '@react-three/rapier'
+import { PlayerAircraft } from './engine/PlayerAircraft'
 import { YsflightEngine } from './engine/YsflightEngine'
 
 export interface WorldProps {
@@ -14,6 +15,7 @@ export const World: React.FC<WorldProps> = ({ position = [0, 0, 0] }) => {
   return (
     <group position={position}>
       <YsflightEngine args={['-freeflight', 'F-16C_FIGHTINGFALCON', 'ATSUGI_AIRBASE', 'RW01_01']} />
+      <PlayerAircraft marker seat={/[?&]seat=1/.test(location.search)} />
 
       {/* Walkable ground: an invisible slab under the whole airfield (the
           engine draws the terrain; this only carries the avatar). */}
