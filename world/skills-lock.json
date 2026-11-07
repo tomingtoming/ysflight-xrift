@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "xrift-world": {
+      "source": "WebXR-JP/xrift-skills",
+      "sourceType": "github",
+      "skillPath": "skills/xrift-world/SKILL.md",
+      "computedHash": "4617820635a0a7a01065beb81cf6dda91fd2159c515de1215e7e524c45d3a284"
+    }
+  }
+}
