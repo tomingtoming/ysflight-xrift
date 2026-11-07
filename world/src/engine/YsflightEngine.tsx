@@ -66,7 +66,7 @@ export function YsflightEngine({ args, keyboard = true, onReady }: YsflightEngin
         setMod(m)
         setEngine(m)
         onReady?.()
-        ;(window as unknown as { __ysfx?: unknown }).__ysfx = m
+        if (import.meta.env.DEV) (window as unknown as { __ysfx?: unknown }).__ysfx = m // dev console aid
         console.log('[ysf] engine ready')
       })
       .catch((e) => console.error('[ysf] boot failed', e))
@@ -149,7 +149,7 @@ export function YsflightEngine({ args, keyboard = true, onReady }: YsflightEngin
 let eyeCounter = 0
 
 export const ysfxStats = { draws: 0, lastEye: -1, lastVp: [0, 0, 0, 0] as number[], keys: 0, lastKey: '', cam: [0, 0, 0] as number[], fwd: [0, 0, 0] as number[], tan: [0, 0, 0, 0] as number[] }
-;(window as unknown as { __ysfxStats?: unknown }).__ysfxStats = ysfxStats
+if (import.meta.env.DEV) (window as unknown as { __ysfxStats?: unknown }).__ysfxStats = ysfxStats
 
 function drawEngine(m: YsflightModule, renderer: WebGLRenderer, camera: Camera, vp: Vector4) {
   const gl = renderer.getContext() as WebGL2RenderingContext

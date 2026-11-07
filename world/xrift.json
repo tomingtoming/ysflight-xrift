@@ -1,8 +1,8 @@
 {
   "world": {
     "distDir": "./dist",
-    "title": "サンプルワールド",
-    "description": "React Three FiberとRapierで作られたサンプルワールドです",
+    "title": "YSFLIGHT 厚木 (ysflight-xrift)",
+    "description": "YSFLIGHTの原典エンジン（WebAssembly）がXRiftの中で動く実験ワールド。厚木基地の滑走路にF-16が駐機している。",
     "thumbnailPath": "thumbnail.png",
     "buildCommand": "npm run build",
     "ignore": [
@@ -31,6 +31,14 @@
     "camera": {
       "near": 0.1,
       "far": 1000
+    },
+    "permissions": {
+      "allowedCodeRules": [
+        "no-rtc-connection"
+      ],
+      "allowedDomains": [
+        "stun.l.google.com"
+      ]
     }
   }
 }
