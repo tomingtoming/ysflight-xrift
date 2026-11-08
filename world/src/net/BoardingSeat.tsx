@@ -17,6 +17,7 @@ import { Seat, useUsers } from '@xrift/world-components'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { setPiloting, useEngine } from '../engine/engineStore'
+import { FlightHud } from './FlightHud'
 import {
   NET_FLYING,
   airBase,
@@ -32,6 +33,18 @@ interface SeatOccupant {
   id: string
   isLocalUser: boolean
 }
+
+interface SeatControlInput {
+  forward: number
+  right: number
+}
+
+// fsvr.h control block (FsVrControlDataPointer)
+const CTL_GRABBED = 0
+const CTL_AILERON = 1 // + = roll right
+const CTL_ELEVATOR = 2 // + = nose up
+const CTL_STICK_EVER_GRABBED = 8
+const STICK_RATE = 2.5 // full deflection per second from a binary (keyboard) input
 
 export interface BoardingSeatProps {
   id: string
@@ -63,6 +76,8 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
   const clockRef = useRef(0)
   const [cockpit, setCockpit] = useState<[number, number, number]>([0, SEAT_DROP + 0.45, 0])
   const cockpitRef = useRef(cockpit)
+  const [hudOn, setHudOn] = useState(false)
+  const stickRef = useRef({ ail: 0, elv: 0, fed: false })
 
   const pedestal = useMemo(() => {
     const m = new Matrix4()
@@ -79,13 +94,50 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
     [mod],
   )
 
+  const releaseStick = useCallback(() => {
+    if (!mod) return
+    const c = mod._FsVrControlDataPointer() >> 2
+    mod.HEAPF32[c + CTL_GRABBED] = 0 // the engine springs the stick to centre
+    mod.HEAPF32[c + CTL_AILERON] = 0
+    mod.HEAPF32[c + CTL_ELEVATOR] = 0
+    stickRef.current.ail = 0
+    stickRef.current.elv = 0
+  }, [mod])
+
   const endLocalFlight = useCallback(() => {
     if (!flyingRef.current) return
     flyingRef.current = false
     setPiloting(false)
+    setHudOn(false)
+    releaseStick()
     mod?._YsfxReleaseAllKeys()
     pressKey('F2')
-  }, [mod, pressKey])
+  }, [mod, pressKey, releaseStick])
+
+  // The host's unified driver input (W/S, A/D, arrows, VR thumbstick, mobile
+  // stick) is the stick: forward = push = nose down, right = roll right.
+  // Written into the engine's VR control block, which overrides the keyboard
+  // stick while [0] is set.  Keys the host does not consume (Q/A throttle,
+  // Z/X/C rudder, G gear, B brake, F/R flaps, Tab afterburner) still go
+  // through the keyboard bridge.
+  const onControlInput = useCallback(
+    (input: SeatControlInput, delta: number) => {
+      if (!mod || !flyingRef.current) return
+      const st = stickRef.current
+      const step = STICK_RATE * Math.max(delta, 0)
+      const toward = (v: number, target: number) => v + Math.max(-step, Math.min(step, target - v))
+      st.ail = toward(st.ail, Math.max(-1, Math.min(1, input.right)))
+      st.elv = toward(st.elv, Math.max(-1, Math.min(1, -input.forward)))
+      st.fed = true
+      const c = mod._FsVrControlDataPointer() >> 2
+      const f = mod.HEAPF32
+      f[c + CTL_GRABBED] = 1
+      f[c + CTL_AILERON] = st.ail
+      f[c + CTL_ELEVATOR] = st.elv
+      f[c + CTL_STICK_EVER_GRABBED] = 1
+    },
+    [mod],
+  )
 
   const onEnter = useCallback(
     (o: SeatOccupant) => {
@@ -120,6 +172,7 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
         if (flying && !flyingRef.current) {
           flyingRef.current = true
           setPiloting(true)
+          setHudOn(true)
           pressKey('F1') // cockpit view: the engine hides our own exterior
         } else if (!flying && flyingRef.current) {
           endLocalFlight()
@@ -169,7 +222,9 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
         interactionText={`乗る: ${label ?? air}`}
         onEnter={onEnter}
         onLeave={onLeave}
+        onControlInput={onControlInput}
       >
+        {hudOn ? <FlightHud position={[0, SEAT_DROP - 0.05, -1.4]} /> : null}
         {/* pedestal: the thing you aim at */}
         <mesh position={[0, -0.25, 0]}>
           <cylinderGeometry args={[0.55, 0.65, 0.4, 24]} />

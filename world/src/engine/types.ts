@@ -23,6 +23,7 @@ export interface YsflightModule {
   _FsVrAirListDataPointer: () => number
   _FsVrAirListIdentifier: (i: number) => number
   _FsVrAirListName: (i: number) => number
+  _FsVrFlightDataPointer: () => number
   // port layer (Ysfx*)
   _YsfxInterval: () => void
   _YsfxDraw: () => number
