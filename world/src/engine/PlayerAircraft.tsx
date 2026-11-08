@@ -10,9 +10,10 @@
  */
 import { useFrame } from '@react-three/fiber'
 import { Seat } from '@xrift/world-components'
-import { useCallback, useRef, useState } from 'react'
-import { Group } from 'three'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Group, MeshStandardMaterial } from 'three'
 import { useEngine } from './engineStore'
+import { subscribeKeys } from './keyBridge'
 
 interface SeatOccupant {
   id: string
@@ -73,13 +74,39 @@ export function PlayerAircraft({ marker = false, seat = true }: PlayerAircraftPr
     [pressKey],
   )
 
+  // Key-reach probe: the marker flashes green for a moment whenever a
+  // keydown reaches the world code at all (independent of what the engine
+  // binds the key to).  Answers "does the host let keys through while
+  // seated" on a production host where we cannot attach a debugger.
+  const markerMat = useRef<MeshStandardMaterial>(null)
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const flash = () => {
+      markerMat.current?.color.set('lime')
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => markerMat.current?.color.set('orange'), 400)
+    }
+    const off = subscribeKeys(flash, () => {}, () => {})
+    return () => {
+      off()
+      if (timer) clearTimeout(timer)
+    }
+  }, [])
+
   // Seat origin = hip; the engine's cockpit position is the pilot's eye.
   const SEAT_DROP = 0.72
   const markerMesh = marker ? (
-    <mesh position={[0, 0, 0]}>
-      <boxGeometry args={[0.45, 0.08, 0.45]} />
-      <meshStandardMaterial color="orange" transparent opacity={0.7} />
-    </mesh>
+    <group>
+      <mesh position={[0, 0, 0]}>
+        <boxGeometry args={[0.45, 0.08, 0.45]} />
+        <meshStandardMaterial color="orange" transparent opacity={0.7} />
+      </mesh>
+      {/* probe lamp ahead of the pilot's eye so it is visible while seated */}
+      <mesh position={[0, SEAT_DROP + 0.1, -1.6]}>
+        <sphereGeometry args={[0.06, 12, 8]} />
+        <meshStandardMaterial ref={markerMat} color="orange" />
+      </mesh>
+    </group>
   ) : null
   const seatPos: [number, number, number] = [cockpit[0], cockpit[1] - SEAT_DROP, cockpit[2]]
   // The host finds a seat by raycasting the crosshair against the seat's
