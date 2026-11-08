@@ -12,7 +12,7 @@ import { useFrame } from '@react-three/fiber'
 import { Seat } from '@xrift/world-components'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Group, MeshStandardMaterial } from 'three'
-import { useEngine } from './engineStore'
+import { setPiloting, useEngine } from './engineStore'
 import { subscribeKeys } from './keyBridge'
 
 interface SeatOccupant {
@@ -63,15 +63,20 @@ export function PlayerAircraft({ marker = false, seat = true }: PlayerAircraftPr
   )
   const onEnter = useCallback(
     (o: SeatOccupant) => {
-      if (o.isLocalUser) pressKey('F1') // cockpit view: hide own exterior
+      if (!o.isLocalUser) return
+      setPiloting(true) // keyboard now reaches the engine
+      pressKey('F1') // cockpit view: hide own exterior
     },
     [pressKey],
   )
   const onLeave = useCallback(
     (o: SeatOccupant) => {
-      if (o.isLocalUser) pressKey('F2') // outside view: draw own aircraft again
+      if (!o.isLocalUser) return
+      setPiloting(false)
+      mod?._YsfxReleaseAllKeys() // nothing stays held after standing up
+      pressKey('F2') // outside view: draw own aircraft again
     },
-    [pressKey],
+    [pressKey, mod],
   )
 
   // Key-reach probe: the marker flashes green for a moment whenever a

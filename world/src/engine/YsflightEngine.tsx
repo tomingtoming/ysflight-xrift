@@ -18,7 +18,7 @@ import { useXRift } from '@xrift/world-components'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BoxGeometry, Camera, Mesh, MeshBasicMaterial, Vector2, Vector4, WebGLRenderer } from 'three'
 import { createEngine } from './loadEngine'
-import { setEngine } from './engineStore'
+import { isPiloting, setEngine } from './engineStore'
 import { subscribeKeys } from './keyBridge'
 import type { YsflightModule } from './types'
 
@@ -83,16 +83,19 @@ export function YsflightEngine({ args, keyboard = true, onReady }: YsflightEngin
     const key = mod.cwrap('YsfxKeyByCode', 'number', ['string', 'number'])
     const isTyping = (t: EventTarget | null) =>
       t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+    // Space is the host's "leave seat" key; never hand it to the engine
+    // (default FIREWEAPON) or every exit fires a burst.
+    const reserved = (e: KeyboardEvent) => e.code === 'Space'
     const down = (e: KeyboardEvent) => {
-      if (isTyping(e.target)) return
+      if (isTyping(e.target) || !isPiloting() || reserved(e)) return
       const fs = key(e.code, 1) as number
       ysfxStats.keys++
       ysfxStats.lastKey = `${e.code}->${fs}`
       if (fs !== 0 && e.key.length === 1) mod._YsfxChar(e.key.charCodeAt(0))
     }
     const up = (e: KeyboardEvent) => {
-      if (isTyping(e.target)) return
-      key(e.code, 0)
+      if (isTyping(e.target) || reserved(e)) return
+      key(e.code, 0) // always allowed: releases a key pressed before the gate closed
     }
     const blur = () => mod._YsfxReleaseAllKeys()
     return subscribeKeys(down, up, blur)
