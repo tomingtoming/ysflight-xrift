@@ -193,10 +193,10 @@ extern "C" int EMSCRIPTEN_KEEPALIVE YsfxKeyByCode(const char code[],int down)
 	{
 		if(0!=down)
 		{
-			if(0==keyState[fskey])
-			{
-				FsPushKey(fskey);
-			}
+			// Push on every keydown, auto-repeat included: the desktop
+			// drivers forward the OS repeat (WM_KEYDOWN / X11 KeyPress),
+			// and the engine relies on it for held throttle/rudder keys.
+			FsPushKey(fskey);
 			keyState[fskey]=1;
 		}
 		else
