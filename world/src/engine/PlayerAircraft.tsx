@@ -82,6 +82,15 @@ export function PlayerAircraft({ marker = false, seat = true }: PlayerAircraftPr
     </mesh>
   ) : null
   const seatPos: [number, number, number] = [cockpit[0], cockpit[1] - SEAT_DROP, cockpit[2]]
+  // The host finds a seat by raycasting the crosshair against the seat's
+  // child meshes, so give it a cockpit-sized volume to hit (drawn fully
+  // transparent; the marker alone is a thin plate and easy to miss).
+  const hitVolume = (
+    <mesh position={[0, 0.5, 0]}>
+      <boxGeometry args={[1.0, 1.3, 1.6]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+    </mesh>
+  )
   return (
     <group ref={group} visible={valid}>
       {seat ? (
@@ -93,6 +102,7 @@ export function PlayerAircraft({ marker = false, seat = true }: PlayerAircraftPr
           onEnter={onEnter}
           onLeave={onLeave}
         >
+          {hitVolume}
           {markerMesh}
         </Seat>
       ) : (

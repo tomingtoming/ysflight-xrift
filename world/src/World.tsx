@@ -15,7 +15,7 @@ export const World: React.FC<WorldProps> = ({ position = [0, 0, 0] }) => {
   return (
     <group position={position}>
       <YsflightEngine args={['-freeflight', 'F-16C_FIGHTINGFALCON', 'ATSUGI_AIRBASE', 'RW01_01']} />
-      <PlayerAircraft marker seat={/[?&]seat=1/.test(location.search)} />
+      <PlayerAircraft marker />
 
       {/* Walkable ground: an invisible slab under the whole airfield (the
           engine draws the terrain; this only carries the avatar). */}
