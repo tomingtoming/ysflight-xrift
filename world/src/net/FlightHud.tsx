@@ -49,6 +49,7 @@ export function FlightHud({ position = [0, 0.7, -1.4] }: FlightHudProps) {
       [gear, brk, flp, wpn].filter(Boolean).join('  '),
     ]
     setLines((prev) => (prev[0] === next[0] && prev[1] === next[1] && prev[2] === next[2] ? prev : next))
+    if (import.meta.env.DEV) (window as unknown as { __ysfxHud?: string[] }).__ysfxHud = next
   })
 
   if (!mod) return null

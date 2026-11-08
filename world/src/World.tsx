@@ -3,6 +3,7 @@ import { CuboidCollider, RigidBody } from '@react-three/rapier'
 import { BoardingSeat } from './net/BoardingSeat'
 import { NetSession } from './net/NetSession'
 import { RemoteAircraftSeats } from './net/RemoteAircraftSeats'
+import { DevHooks } from './net/DevHooks'
 
 export interface WorldProps {
   position?: [number, number, number]
@@ -39,6 +40,7 @@ export const World: React.FC<WorldProps> = ({ position = [0, 0, 0] }) => {
               />
             ))}
             <RemoteAircraftSeats />
+            {import.meta.env.DEV ? <DevHooks /> : null}
           </>
         )}
       </NetSession>
