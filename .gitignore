@@ -9,3 +9,6 @@ world/.playwright-cli/
 world/.triplex/
 signal/node_modules/
 signal/.wrangler/
+world/tests/.auth/
+world/test-results/
+world/playwright-report/

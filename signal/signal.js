@@ -69,6 +69,9 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === '/healthz') {
+      return new Response('ok', { status: 200 });
+    }
     if (url.pathname === '/signal') {
       if (request.headers.get('Upgrade') !== 'websocket') {
         return new Response('expected WebSocket Upgrade', { status: 426 });

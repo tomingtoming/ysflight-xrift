@@ -12,6 +12,7 @@ import { useInstanceState, useUsers } from '@xrift/world-components'
 import { useEffect, useMemo } from 'react'
 import { YsflightEngine } from '../engine/YsflightEngine'
 import { pilotNameOf } from './netState'
+import { StateBeacon } from './StateBeacon'
 
 export interface NetSessionState {
   hostId: string | null
@@ -72,12 +73,13 @@ export function NetSession({ children }: NetSessionProps) {
   } else if (net.hostId && net.room) {
     role = net.hostId === me.id ? 'host' : 'client'
   }
-  if (!role || !room) return null // election pending: nothing to boot yet
+  if (!role || !room) return <StateBeacon role={null} room={null} /> // election pending: nothing to boot yet
 
   const args = role === 'host' ? ['-server', pilotName, FIELD] : ['-client', pilotName, room]
   return (
     <>
       <YsflightEngine key={`${role}:${room}`} args={args} signalUrl={SIGNAL_URL} roomCode={room} />
+      <StateBeacon role={role} room={room} />
       {children?.(role, pilotName)}
     </>
   )
