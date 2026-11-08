@@ -2,7 +2,7 @@
   "world": {
     "distDir": "./dist",
     "title": "YSFLIGHT 厚木 (ysflight-xrift)",
-    "description": "YSFLIGHTの原典エンジン（WebAssembly）がXRiftの中で動く実験ワールド。厚木基地の滑走路にF-16が駐機している。",
+    "description": "YSFLIGHTの原典エンジン（WebAssembly）がXRiftの中で動く実験ワールド。厚木基地。台座に座ると機体に乗り込み、同じインスタンスの全員が同じ空を飛ぶ（対戦サーバはインスタンス内の先着ブラウザ）。",
     "thumbnailPath": "thumbnail.png",
     "buildCommand": "npm run build",
     "ignore": [
@@ -37,7 +37,8 @@
         "no-rtc-connection"
       ],
       "allowedDomains": [
-        "stun.l.google.com"
+        "stun.l.google.com",
+        "ysflight-xrift-signal.toming.workers.dev"
       ]
     }
   }

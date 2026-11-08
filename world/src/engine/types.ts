@@ -17,6 +17,12 @@ export interface YsflightModule {
   _FsVrAircraftStateDataPointer: () => number
   _FsVrConsumeSimDrawnFrames: () => number
   _FsVrPerfDataPointer: () => number
+  // fsvr.h network-lobby automation (ysflight-xrift fork)
+  _FsVrNetRequestLeave: () => void
+  _FsVrNetStateDataPointer: () => number
+  _FsVrAirListDataPointer: () => number
+  _FsVrAirListIdentifier: (i: number) => number
+  _FsVrAirListName: (i: number) => number
   // port layer (Ysfx*)
   _YsfxInterval: () => void
   _YsfxDraw: () => number
@@ -43,6 +49,12 @@ export interface YsflightModuleOptions {
   printErr?: (s: string) => void
   onAbort?: (what: unknown) => void
   preRun?: Array<() => void>
+  /** yssocket_emscripten: signaling WebSocket URL (wss://.../signal). */
+  ysfwSignalUrl?: string
+  /** yssocket_emscripten: room code to register when hosting (-server). */
+  ysfwRoomCode?: string
+  /** yssocket_emscripten: ICE servers; STUN-only fallback when absent. */
+  ysfwIceServers?: Array<{ urls: string | string[] }>
 }
 
 export type CreateYsflight = (opts: YsflightModuleOptions) => Promise<YsflightModule>

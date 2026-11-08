@@ -1,0 +1,84 @@
+/**
+ * NetSession — one XRift instance = one YSFLIGHT network session.
+ *
+ * Host election (toming's call, 2026-11-08): the first browser in the
+ * instance runs the engine in -server mode and registers a signaling room;
+ * everyone else boots -client against that room.  When the host leaves the
+ * instance a remaining user claims the room with a fresh code and every
+ * engine restarts in its new role.  The election lives in XRift instance
+ * state ('ysfx-net'), so no extra service is needed to agree on the host.
+ */
+import { useInstanceState, useUsers } from '@xrift/world-components'
+import { useEffect, useMemo } from 'react'
+import { YsflightEngine } from '../engine/YsflightEngine'
+import { pilotNameOf } from './netState'
+
+export interface NetSessionState {
+  hostId: string | null
+  room: string | null
+  since: number
+}
+
+export const FIELD = 'ATSUGI_AIRBASE'
+
+const SIGNAL_URL =
+  (import.meta.env.VITE_YSFX_SIGNAL_URL as string | undefined) ||
+  'wss://ysflight-xrift-signal.toming.workers.dev/signal'
+
+function makeRoom(): string {
+  // 8-digit numeric, the shape the signaling hub and yssocket expect.
+  return Array.from({ length: 8 }, () => Math.floor(Math.random() * 10)).join('')
+}
+
+export type NetRole = 'host' | 'client'
+
+export interface NetSessionProps {
+  children?: (role: NetRole, pilotName: string) => React.ReactNode
+}
+
+export function NetSession({ children }: NetSessionProps) {
+  const { localUser, remoteUsers } = useUsers()
+  const [net, setNet] = useInstanceState<NetSessionState>('ysfx-net', { hostId: null, room: null, since: 0 })
+
+  const me = localUser ?? { id: 'local', displayName: 'pilot' }
+  const pilotName = useMemo(() => pilotNameOf(me), [me.id, me.displayName]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Claim the host seat when nobody present holds it.  A newcomer may see an
+  // empty user list for a moment, so wait before claiming and re-check the
+  // synced state at claim time (functional update).
+  useEffect(() => {
+    const present = new Set([me.id, ...remoteUsers.map((u) => u.id)])
+    const hostAlive = net.hostId !== null && present.has(net.hostId)
+    if (hostAlive) return
+    const candidates = [...present].sort()
+    if (candidates[0] !== me.id) return // lowest id among those present claims; the rest wait
+    const timer = setTimeout(() => {
+      setNet((prev) => {
+        if (prev.hostId !== null && present.has(prev.hostId)) return prev
+        return { hostId: me.id, room: makeRoom(), since: Date.now() }
+      })
+    }, 2500)
+    return () => clearTimeout(timer)
+  }, [net.hostId, me.id, remoteUsers, setNet])
+
+  // Dev aid: ?ysfxnet=host:12345678 / client:12345678 forces the role and room
+  // (two tabs of the dev environment do not share instance state).
+  let role: NetRole | null = null
+  let room = net.room
+  const forced = import.meta.env.DEV ? /[?&]ysfxnet=(host|client):(\d{8})/.exec(location.search) : null
+  if (forced) {
+    role = forced[1] as NetRole
+    room = forced[2]
+  } else if (net.hostId && net.room) {
+    role = net.hostId === me.id ? 'host' : 'client'
+  }
+  if (!role || !room) return null // election pending: nothing to boot yet
+
+  const args = role === 'host' ? ['-server', pilotName, FIELD] : ['-client', pilotName, room]
+  return (
+    <>
+      <YsflightEngine key={`${role}:${room}`} args={args} signalUrl={SIGNAL_URL} roomCode={room} />
+      {children?.(role, pilotName)}
+    </>
+  )
+}

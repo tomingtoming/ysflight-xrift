@@ -27,11 +27,15 @@ export interface YsflightEngineProps {
   args: string[]
   /** Forward window keyboard events to the engine (default true). */
   keyboard?: boolean
+  /** Signaling WebSocket URL for -server / -client sessions. */
+  signalUrl?: string
+  /** Room code to register when hosting (-server). */
+  roomCode?: string
   onReady?: () => void
 }
 
 
-export function YsflightEngine({ args, keyboard = true, onReady }: YsflightEngineProps) {
+export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onReady }: YsflightEngineProps) {
   const { gl } = useThree()
   const { baseUrl } = useXRift()
   const [mod, setMod] = useState<YsflightModule | null>(null)
@@ -46,6 +50,8 @@ export function YsflightEngine({ args, keyboard = true, onReady }: YsflightEngin
       canvas: gl.domElement,
       preinitializedWebGLContext: ctx,
       arguments: args,
+      ysfwSignalUrl: signalUrl,
+      ysfwRoomCode: roomCode,
       print: (s) => console.log('[ysf]', s),
       printErr: (s) => console.warn('[ysf]', s),
       onAbort: (w) => console.error('[ysf] abort', w),
@@ -73,6 +79,7 @@ export function YsflightEngine({ args, keyboard = true, onReady }: YsflightEngin
     return () => {
       cancelled = true
       setEngine(null)
+      teardownRtc() // a restarted engine (host hand-over) must start from a clean socket layer
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -106,6 +113,7 @@ export function YsflightEngine({ args, keyboard = true, onReady }: YsflightEngin
   useFrame(() => {
     const m = modRef.current
     if (!m) return
+    if ((bootFrames.current & 63) === 0) muteRtcOverlay()
     const size = gl.getDrawingBufferSize(sizeRef.current)
     m._YsfxSetWindowSize(size.x, size.y)
     // Start-up choreography: the engine's pre-flight "CENTER JOYSTICK" prompt
@@ -227,4 +235,69 @@ function drawEngine(m: YsflightModule, renderer: WebGLRenderer, camera: Camera, 
     renderer.setRenderTarget(rt)
     renderer.state.viewport(vp)
   }
+}
+
+// ---------------------------------------------------------------------------
+// yssocket_emscripten keeps its WebRTC state on globalThis.ysfwRtc (shared by
+// every engine instance on the page) and paints a "Room: ..." overlay into the
+// document.  Neither belongs on the XRift host page: mute the overlay, and on
+// unmount close everything so a new engine instance starts clean.
+
+interface RtcGlobal {
+  overlay?: (text: string | null) => void
+  host?: {
+    stopped?: boolean
+    reconnectTimer?: ReturnType<typeof setTimeout> | null
+    ping?: ReturnType<typeof setInterval> | null
+    ws?: WebSocket | null
+    slots?: Record<string, { ch?: RTCDataChannel; pc?: RTCPeerConnection }>
+  } | null
+  cli?: {
+    ping?: ReturnType<typeof setInterval> | null
+    connectTimer?: ReturnType<typeof setTimeout> | null
+    ch?: RTCDataChannel | null
+    pc?: RTCPeerConnection | null
+    ws?: WebSocket | null
+  } | null
+}
+
+function rtcGlobal(): RtcGlobal | undefined {
+  return (globalThis as unknown as { ysfwRtc?: RtcGlobal }).ysfwRtc
+}
+
+function muteRtcOverlay(): void {
+  const R = rtcGlobal()
+  if (!R || R.overlay === noopOverlay) return
+  R.overlay = noopOverlay
+  document.getElementById('ysfw-room-overlay')?.remove()
+}
+function noopOverlay(): void {}
+
+function teardownRtc(): void {
+  const R = rtcGlobal()
+  if (!R) return
+  const H = R.host
+  if (H) {
+    H.stopped = true
+    if (H.reconnectTimer) clearTimeout(H.reconnectTimer)
+    if (H.ping) clearInterval(H.ping)
+    for (const k in H.slots ?? {}) {
+      const S = H.slots![k]
+      try { S.ch?.close() } catch { /* already closed */ }
+      try { S.pc?.close() } catch { /* already closed */ }
+    }
+    try { H.ws?.close() } catch { /* already closed */ }
+    R.host = null
+  }
+  const C = R.cli
+  if (C) {
+    if (C.ping) clearInterval(C.ping)
+    if (C.connectTimer) clearTimeout(C.connectTimer)
+    try { C.ch?.close() } catch { /* already closed */ }
+    try { C.pc?.close() } catch { /* already closed */ }
+    try { C.ws?.close() } catch { /* already closed */ }
+    R.cli = null
+  }
+  delete (globalThis as unknown as { ysfwRtc?: RtcGlobal }).ysfwRtc
+  document.getElementById('ysfw-room-overlay')?.remove()
 }

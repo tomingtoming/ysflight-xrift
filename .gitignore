@@ -7,3 +7,5 @@ world/public/engine/
 .DS_Store
 world/.playwright-cli/
 world/.triplex/
+signal/node_modules/
+signal/.wrangler/

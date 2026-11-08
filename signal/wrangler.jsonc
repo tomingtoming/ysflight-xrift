@@ -1,0 +1,21 @@
+{
+  // ysflight-xrift: WebRTC signaling for the in-world YSFLIGHT session.
+  // One Worker + one Durable Object hub (SignalHub).  Game traffic is P2P
+  // between browsers; only SDP/ICE setup messages pass through here.
+  // Deploy: cd signal && npx wrangler deploy   (needs `npx wrangler login`).
+  // The world connects to wss://<name>.<account>.workers.dev/signal; that host
+  // must be listed in world/xrift.json permissions.allowedDomains.
+  "name": "ysflight-xrift-signal",
+  "compatibility_date": "2025-06-01",
+  "main": "signal.js",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [
+      { "name": "SIGNAL", "class_name": "SignalHub" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SignalHub"] }
+  ]
+}
