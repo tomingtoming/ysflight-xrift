@@ -6,3 +6,4 @@ world/dist/
 world/public/engine/
 .DS_Store
 world/.playwright-cli/
+world/.triplex/
