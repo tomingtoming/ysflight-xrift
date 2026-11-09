@@ -1,7 +1,7 @@
 /**
  * StateBeacon — a read-only observation channel for automated tests.
  *
- * Twice a second the world dispatches a `ysfx-state` CustomEvent on window
+ * Ten times a second the world dispatches a `ysfx-state` CustomEvent on window
  * carrying the engine's session state, the player's flight data and the
  * HUD lines.  Tests (Playwright, on the real XRift host or the dev
  * environment) subscribe to it; nothing is written to globals, so the
@@ -66,7 +66,7 @@ export function StateBeacon({ role, room }: { role: NetRole | null; room: string
   const net = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0 })
   useFrame((_s, dt) => {
     acc.current += dt
-    if (acc.current < 0.5) return
+    if (acc.current < 0.1) return // 10 Hz: fast enough for closed-loop aiming in tests
     acc.current = 0
     const cam = gl.xr?.isPresenting ? gl.xr.getCamera() : camera
     cam.matrixWorld.decompose(v.current, q.current, new Vector3())
