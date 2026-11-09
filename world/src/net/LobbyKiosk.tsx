@@ -15,7 +15,7 @@ import { useDefaultFont } from '@xrift/world-components'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useEngine } from '../engine/engineStore'
 import { publishLobby } from './StateBeacon'
-import { countKioskClick, setKioskJoin } from './lobbyStore'
+import { countKioskClick, noteKioskPointer, setKioskJoin } from './lobbyStore'
 import { NET_FLYING, airBase, airCount, lobbyAirNames, lobbyStpNames, lobbyStpPositions, readNetState, requestJoin, type NetState } from './netState'
 import type { NetRole } from './NetSession'
 
@@ -32,6 +32,8 @@ export interface LobbyKioskProps {
   defaultAir?: string
   defaultStp?: string
 }
+
+const ptype = (e: unknown) => String((e as { pointerType?: string }).pointerType ?? (e as { nativeEvent?: { pointerType?: string } }).nativeEvent?.pointerType ?? '?')
 
 export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_FIGHTINGFALCON', defaultStp = 'RW01_01' }: LobbyKioskProps) {
   const mod = useEngine()
@@ -163,7 +165,9 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
           <Text fontSize={30} color={0xffffff} fontFamily="ja">{`選択: ${selAir} / ${selStp}`}</Text>
           <Container width={320} height={80} borderRadius={14} justifyContent="center" alignItems="center"
             backgroundColor={canStart ? 0x1f9d55 : 0x444444} hover={{ backgroundColor: canStart ? 0x27b863 : 0x444444 }}
-            cursor="pointer" onClick={start}>
+            cursor="pointer" onClick={(e) => { noteKioskPointer('click', ptype(e)); start() }}
+            onPointerEnter={(e) => noteKioskPointer('enter', ptype(e))} onPointerLeave={(e) => noteKioskPointer('leave', ptype(e))}
+            onPointerDown={(e) => noteKioskPointer('down', ptype(e))} onPointerUp={(e) => noteKioskPointer('up', ptype(e))}>
             <Text fontSize={36} color={0xffffff} fontFamily="ja">飛行開始</Text>
           </Container>
         </Container>

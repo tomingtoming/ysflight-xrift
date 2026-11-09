@@ -8,7 +8,7 @@
  * channel passes XRift's code-security rules and ships in production.
  */
 import { useFrame, useThree } from '@react-three/fiber'
-import { kioskClicks, kioskJoinPending } from './lobbyStore'
+import { kioskClicks, kioskHovers, kioskJoinPending } from './lobbyStore'
 import { useRef } from 'react'
 import { Quaternion, Vector3 } from 'three'
 import { useEngine } from '../engine/engineStore'
@@ -40,6 +40,7 @@ export interface YsfxBeacon {
   ctl: number[] | null
   /** [aircraft templates, start positions] offered by the kiosk, once loaded. */
   lobby: number[] | null
+  kiosk: { hovers: number; lastPointer: string; ev: Record<string, number> }
   /** Ground check: camera height, the avatar's feet (host movement), and the engine's terrain under the feet. */
   ground: { cam: number; feet: number[] | null; field: number | null }
 }
@@ -102,7 +103,7 @@ export function StateBeacon({ role, room }: { role: NetRole | null; room: string
       if (mod.HEAPF32[gp + 3] !== 0) field = mod.HEAPF32[gp + 2]
     }
     const detail: YsfxBeacon = {
-      t: Date.now(), role, room, net: null, flight: null, aircraft: [], hud: hudLines, seat: localSeat, draws: ysfxStats.draws, bg: ysfxStats.bgTicks, ctl: null, lobby: lobbyCounts ? [...lobbyCounts, kioskClicks(), kioskJoinPending() ? 1 : 0] : null,
+      t: Date.now(), role, room, net: null, flight: null, aircraft: [], hud: hudLines, seat: localSeat, draws: ysfxStats.draws, bg: ysfxStats.bgTicks, ctl: null, lobby: lobbyCounts ? [...lobbyCounts, kioskClicks(), kioskJoinPending() ? 1 : 0] : null, kiosk: kioskHovers(),
       ground: { cam: v.current.y, feet, field },
       cam: { pos: v.current.toArray(), quat: q.current.toArray() },
       seats: Array.from(seatPos, ([id, pos]) => ({ id, pos })),

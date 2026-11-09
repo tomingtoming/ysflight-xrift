@@ -65,3 +65,49 @@ test('phone: walk, sit by interact button, steer by joystick', async ({ page, co
   }
   if (!left) throw new Error(`still seated after jump hold; last beacon: ${JSON.stringify(await lastBeacon(page))}`)
 })
+
+// LobbyKiosk geometry, as in prod-pc.spec.ts.
+const KIOSK: [number, number, number] = [-117 + 8, 1.6, 640 + 5]
+const START_BTN: [number, number, number] = [KIOSK[0] - (1700 / 2 - 28 - 160) / 1000, KIOSK[1] - (1000 / 2 - 28 - 40) / 1000, KIOSK[2]]
+
+test('phone: kiosk 飛行開始 by the interact button boards the cockpit seat', async ({ page, context }) => {
+  await watchBeacon(page)
+  await enterWorld(page, WORLD_URL)
+  await waitForBeacon(page, (x) => x.role !== null && !!x.net && x.net.ready, 150_000, 'session ready')
+  await waitForBeacon(page, (x) => !!x.lobby && x.lobby[0] > 10, 30_000, 'kiosk lists')
+  await waitForBeacon(page, (x) => !!x.cam, 20_000, 'camera')
+
+  const cdp = await context.newCDPSession(page)
+  const touchStart = (x: number, y: number) => cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+  const touchMove = (x: number, y: number) => cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] })
+  const touchEnd = () => cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  const look = async (dyaw: number, dpitch: number) => {
+    const dx = -dyaw / DEG_PER_PX, dy = -dpitch / DEG_PER_PX
+    const x0 = 300, y0 = 300, n = Math.max(2, Math.ceil(Math.hypot(dx, dy) / 15))
+    await touchStart(x0, y0)
+    for (let i = 1; i <= n; i++) { await page.waitForTimeout(16); await touchMove(x0 + (dx * i) / n, y0 + (dy * i) / n) }
+    await touchEnd()
+    await page.waitForTimeout(350)
+  }
+  const walk = async (ms: number) => { await touchStart(...JOY); await touchMove(JOY[0], JOY[1] - 45); await page.waitForTimeout(ms); await touchEnd() }
+  const aim = await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: START_BTN })
+  console.log(`[sp kiosk aim] dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
+  await page.screenshot({ path: test.info().outputPath('sp-kiosk.png') })
+
+  const interact = page.getByRole('button', { name: 'インタラクト' })
+  const enabled = await interact.isEnabled().catch(() => false)
+  console.log(`[sp kiosk] interact button enabled: ${enabled}`)
+  await interact.tap({ force: true })
+  await page.waitForTimeout(1500)
+  console.log(`[sp kiosk] lobby after tap: ${JSON.stringify((await lastBeacon(page))?.lobby)}`)
+  const seated = await waitForBeacon(page, (x) => x.seat === 'ysfx-cockpit', 30_000, 'auto-seated after 飛行開始')
+  expect(seated.net!.state).toBe(NET_FLYING)
+  await waitForBeacon(page, (x) => !!x.hud && /SPD/.test(x.hud[0]), 10_000, 'HUD')
+  await page.screenshot({ path: test.info().outputPath('sp-kiosk-flying.png') })
+
+  const jump = page.getByRole('button', { name: 'ジャンプ' })
+  const jb = (await jump.boundingBox())!
+  await touchStart(jb.x + jb.width / 2, jb.y + jb.height / 2); await page.waitForTimeout(600); await touchEnd()
+  const left = await waitForBeacon(page, (x) => x.seat === null, 8_000, 'left the seat')
+  expect(left.seat).toBeNull()
+})

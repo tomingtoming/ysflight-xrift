@@ -107,4 +107,9 @@ test('desktop: kiosk 飛行開始 boards the cockpit seat', async ({ page }) => 
   const left = await waitForBeacon(page, (x) => x.seat === null, 8_000, 'left the seat')
   expect(left.seat).toBeNull()
   console.log(`[kiosk after leave] feet ${JSON.stringify(left.ground.feet)}`)
+  // Teleported home above the apron; the character settles onto the ground.
+  await page.waitForTimeout(2500)
+  const settled = (await lastBeacon(page))!
+  console.log(`[kiosk settled] feet ${JSON.stringify(settled.ground.feet)}`)
+  expect(settled.ground.feet![1]).toBeLessThan(0.1)
 })

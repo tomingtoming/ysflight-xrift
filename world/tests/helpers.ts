@@ -71,6 +71,7 @@ export interface Beacon {
   gfx: { vp: number[]; eye: number; rt: null | { w: number; h: number; samples: number }; fb: boolean; buf: number[] }
   ctl: number[] | null
   lobby: number[] | null
+  kiosk: { hovers: number; lastPointer: string; ev: Record<string, number> }
   ground: { cam: number; feet: number[] | null; field: number | null }
 }
 

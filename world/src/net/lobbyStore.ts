@@ -11,3 +11,10 @@ export function kioskJoinPending(): boolean { return pending }
 let clicks = 0
 export function countKioskClick(): void { clicks++ }
 export function kioskClicks(): number { return clicks }
+
+/** Pointer hovers over the kiosk's 飛行開始 button and the last pointer type
+ *  seen (mouse / touch / xr ray...): tells which input paths reach uikit. */
+const ev: Record<string, number> = { enter: 0, leave: 0, down: 0, up: 0, click: 0 }
+let lastPointer = ''
+export function noteKioskPointer(kind: 'enter' | 'leave' | 'down' | 'up' | 'click', pointerType: string): void { ev[kind]++; lastPointer = `${kind}:${pointerType}` }
+export function kioskHovers(): { hovers: number; lastPointer: string; ev: Record<string, number> } { return { hovers: ev.enter, lastPointer, ev: { ...ev } } }
