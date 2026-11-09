@@ -50,6 +50,15 @@ test('sit on a pedestal -> join -> stick and HUD', async ({ page }) => {
   for (let i = 0; i < 20; i++) await page.keyboard.press('q')
   const moving = await waitForBeacon(page, (b) => !!b.flight && b.flight[1] * 3.6 > 5, 20_000, 'speed > 5 km/h')
   expect(moving.flight![7]).toBeGreaterThan(0.2)
+  // A is YSFLIGHT's throttle-down key; the host also folds it into the seat's
+  // roll axis, which the seat takes back out: throttle drops, no roll.
+  await page.keyboard.down('a')
+  await page.waitForTimeout(700)
+  const aHeld = (await lastBeacon(page))!
+  await page.keyboard.up('a')
+  console.log(`[A held] throttle ${moving.flight![7].toFixed(2)} -> ${aHeld.flight![7].toFixed(2)}, aileron ${aHeld.ctl![1].toFixed(2)}`)
+  expect(aHeld.flight![7]).toBeLessThan(moving.flight![7] - 0.03)
+  expect(Math.abs(aHeld.ctl![1])).toBeLessThan(0.05)
   await page.screenshot({ path: test.info().outputPath('local-pc.png') })
 })
 

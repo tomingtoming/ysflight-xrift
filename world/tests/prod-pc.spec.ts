@@ -56,6 +56,15 @@ test('desktop: walk, sit by crosshair, stick, throttle, leave', async ({ page })
   for (let i = 0; i < 25; i++) { await page.keyboard.press('q'); await page.waitForTimeout(40) }
   const thr = await waitForBeacon(page, (x) => !!x.flight && x.flight[7] > 0.9 && x.flight[1] > 5, 15_000, 'throttle up, rolling')
   expect(thr.flight![7]).toBeGreaterThan(0.9)
+  // A is YSFLIGHT's throttle-down key; the host also folds it into the seat's
+  // roll axis, which the seat takes back out: throttle drops, no roll.
+  await page.keyboard.down('a')
+  await page.waitForTimeout(700)
+  const aHeld = (await lastBeacon(page))!
+  await page.keyboard.up('a')
+  console.log(`[pc A held] throttle ${thr.flight![7].toFixed(2)} -> ${aHeld.flight![7].toFixed(2)}, aileron ${aHeld.ctl![1].toFixed(2)}`)
+  expect(aHeld.flight![7]).toBeLessThan(thr.flight![7] - 0.03)
+  expect(Math.abs(aHeld.ctl![1])).toBeLessThan(0.05)
   // At speed the seated camera must stay on the cockpit: lag.eFrames is the
   // camera's residual lag along the velocity in frames (seatLead.ts).
   const fast = await waitForBeacon(page, (x) => !!x.lag && x.lag.speed > 40, 60_000, 'speed > 40 m/s')

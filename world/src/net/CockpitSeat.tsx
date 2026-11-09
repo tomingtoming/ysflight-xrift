@@ -15,6 +15,7 @@ import { Seat, useSeatContext, useTeleport, useUsers } from '@xrift/world-compon
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { setPiloting, useEngine } from '../engine/engineStore'
+import { isKeyDown } from '../engine/keyBridge'
 import { FlightHud } from './FlightHud'
 import { Gunsight, HudGlass } from './HudGlass'
 import { kioskJoinPending, setKioskJoin } from './lobbyStore'
@@ -100,7 +101,11 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     const st = stickRef.current
     const step = STICK_RATE * Math.max(delta, 0)
     const toward = (v: number, target: number) => v + Math.max(-step, Math.min(step, target - v))
-    st.ail = toward(st.ail, Math.max(-1, Math.min(1, input.right)))
+    // The host folds A/D into `right`, but A/D are YSFLIGHT's throttle keys
+    // (they reach the engine through the key bridge): take their share back
+    // out so the arrows alone roll and A only throttles down.
+    const right = input.right - (isKeyDown('KeyD') ? 1 : 0) + (isKeyDown('KeyA') ? 1 : 0)
+    st.ail = toward(st.ail, Math.max(-1, Math.min(1, right)))
     st.elv = toward(st.elv, Math.max(-1, Math.min(1, -input.forward)))
     const c = mod._FsVrControlDataPointer() >> 2
     mod.HEAPF32[c + CTL_GRABBED] = 1

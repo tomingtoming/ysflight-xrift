@@ -10,6 +10,10 @@
  */
 export type KeyHandler = (e: KeyboardEvent) => void
 
+const held = new Set<string>()
+/** Whether a physical key (KeyboardEvent.code) is currently down, from the same capture listener. */
+export function isKeyDown(code: string): boolean { return held.has(code) }
+
 const downHandlers = new Set<KeyHandler>()
 const upHandlers = new Set<KeyHandler>()
 const blurHandlers = new Set<() => void>()
@@ -19,9 +23,9 @@ export function installKeyBridge(): void {
   if (installed || typeof window === 'undefined') return
   installed = true
   const opts = { capture: true }
-  window.addEventListener('keydown', (e) => downHandlers.forEach((h) => h(e)), opts)
-  window.addEventListener('keyup', (e) => upHandlers.forEach((h) => h(e)), opts)
-  window.addEventListener('blur', () => blurHandlers.forEach((h) => h()))
+  window.addEventListener('keydown', (e) => { held.add(e.code); downHandlers.forEach((h) => h(e)) }, opts)
+  window.addEventListener('keyup', (e) => { held.delete(e.code); upHandlers.forEach((h) => h(e)) }, opts)
+  window.addEventListener('blur', () => { held.clear(); blurHandlers.forEach((h) => h()) })
 }
 
 export function subscribeKeys(down: KeyHandler, up: KeyHandler, blur: () => void): () => void {
