@@ -18,6 +18,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { setPiloting, useEngine } from '../engine/engineStore'
 import { isKeyDown } from '../engine/keyBridge'
+import { mouseStick, setMouseStickEnabled } from '../engine/mouseStick'
+import { StickMarker } from './StickMarker'
 import { FlightHud } from './FlightHud'
 import { Gunsight, HudGlass } from './HudGlass'
 import { DEFAULT_EYE, EyeCalibrator, type EyeOffset } from './seatEye'
@@ -83,6 +85,8 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
   const lead = useRef(new SeatLead())
   const leadVec = useRef(new Vector3())
   const camPos = useRef(new Vector3())
+  const mouseWas = useRef(false)
+  const mouseOwner = useRef(false)
   const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   const occupantRef = useRef<SeatOccupant | null>(null)
   const flyingRef = useRef(false) // local user's flight is active (seat rides the aircraft)
@@ -147,7 +151,7 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
   // through the keyboard bridge.
   const onControlInput = useCallback(
     (input: SeatControlInput, delta: number) => {
-      if (!mod || !flyingRef.current || saccStatus.active) return // in VR the hands fly the aircraft
+      if (!mod || !flyingRef.current || saccStatus.active || mouseStick.grabbed) return // VR hands / the mouse stick fly the aircraft
       const st = stickRef.current
       const step = STICK_RATE * Math.max(delta, 0)
       const toward = (v: number, target: number) => v + Math.max(-step, Math.min(step, target - v))
@@ -206,6 +210,22 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
     const cam = gl.xr?.isPresenting ? gl.xr.getCamera() : camera
     camPos.current.setFromMatrixPosition(cam.matrixWorld)
     const occ = occupantRef.current
+    // Only the seat that holds the flying local player owns the mouse stick
+    // (every other seat instance runs this loop too and must not switch it off).
+    const own = !!occ?.isLocalUser && flyingRef.current && !isCoarsePointer() && !gl.xr?.isPresenting
+    if (own && !mouseOwner.current) { mouseOwner.current = true; setMouseStickEnabled(true) }
+    else if (!own && mouseOwner.current) { mouseOwner.current = false; setMouseStickEnabled(false) }
+    if (mod && own && mouseStick.grabbed) {
+      const c = mod._FsVrControlDataPointer() >> 2
+      mod.HEAPF32[c + CTL_GRABBED] = 1
+      mod.HEAPF32[c + CTL_AILERON] = mouseStick.ail
+      mod.HEAPF32[c + CTL_ELEVATOR] = mouseStick.elv
+      mod.HEAPF32[c + CTL_STICK_EVER_GRABBED] = 1
+      mouseWas.current = true
+    } else if (mouseWas.current) {
+      mouseWas.current = false
+      releaseStick()
+    }
     if (occ?.isLocalUser) {
       const cp = cockpitRef.current
       const e = eyeRef.current
@@ -273,7 +293,7 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
   return (
     <>
     <group ref={group}>
-      {hudOn ? (<group position={seatPos}><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands />{isCoarsePointer() ? <TouchConsole eye={eye} /> : null}</group>) : null}
+      {hudOn ? (<group position={seatPos}><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands /><StickMarker eye={eye} />{isCoarsePointer() ? <TouchConsole eye={eye} /> : null}</group>) : null}
     </group>
     <group ref={seatGroup}>
       <Seat

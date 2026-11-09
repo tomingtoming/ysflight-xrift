@@ -19,6 +19,8 @@ import type { NetRole } from './NetSession'
 import { eyeCalibration, type EyeReport } from './seatEye'
 import { seatLag, type LagReport } from './seatLead'
 import { saccStatus } from '../vr/saccControls'
+import { mouseStick } from '../engine/mouseStick'
+import { isCoarsePointer } from './TouchConsole'
 
 export interface YsfxBeacon {
   t: number
@@ -54,6 +56,10 @@ export interface YsfxBeacon {
   lag: LagReport | null
   /** Phone switch panel button centres (TouchConsole), null when not shown. */
   console: Array<{ id: string; pos: number[] }> | null
+  /** Mouse stick (engine/mouseStick.ts): enabled while flying on desktop, grabbed while the left button is held. */
+  mouse: { enabled: boolean; grabbed: boolean; ail: number; elv: number; grabs: number }
+  /** Input device gates: coarse pointer (phone panel), XR presenting (hands). */
+  gates: { coarse: boolean; xr: boolean }
 }
 
 const seatPos = new Map<string, number[]>()
@@ -126,6 +132,8 @@ export function StateBeacon({ role, room }: { role: NetRole | null; room: string
       eye: eyeCalibration(),
       lag: seatLag(),
       console: consoleButtons,
+      mouse: { ...mouseStick },
+      gates: { coarse: isCoarsePointer(), xr: !!gl.xr?.isPresenting },
       cam: { pos: v.current.toArray(), quat: q.current.toArray() },
       seats: Array.from(seatPos, ([id, pos]) => ({ id, pos })),
       gfx: { vp: ysfxStats.lastVp, eye: ysfxStats.lastEye, rt: ysfxStats.rt, fb: ysfxStats.fb, buf: ysfxStats.buf },

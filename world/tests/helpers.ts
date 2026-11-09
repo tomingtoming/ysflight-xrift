@@ -80,6 +80,8 @@ export interface Beacon {
   /** Seated camera lag (frames at 60 Hz, measured before the lead) and the lead applied (ms). */
   lag: { speed: number; eFrames: number; leadMs: number } | null
   console: Array<{ id: string; pos: number[] }> | null
+  mouse: { enabled: boolean; grabbed: boolean; ail: number; elv: number; grabs: number }
+  gates: { coarse: boolean; xr: boolean }
 }
 
 /** Start recording beacons; returns nothing, read with lastBeacon(). */

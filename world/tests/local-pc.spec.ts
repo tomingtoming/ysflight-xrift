@@ -46,6 +46,20 @@ test('sit on a pedestal -> join -> stick and HUD', async ({ page }) => {
   expect(elv[0]).toBe(1)
   expect(elv[2]).toBeLessThan(-0.5)
 
+  // Mouse stick: hold the left button, the mouse's travel since the grab is
+  // the deflection (250 px = full); release and it springs back.
+  await page.mouse.move(640, 360)
+  await page.mouse.down()
+  await page.mouse.move(640 + 150, 360, { steps: 10 })
+  const ms = await waitForBeacon(page, (b) => b.mouse.grabbed && !!b.ctl && b.ctl[0] === 1 && b.ctl[1] > 0.5, 5_000, 'mouse stick: roll right')
+  console.log(`[mouse stick] right 150 px -> ail ${ms.ctl![1].toFixed(2)} elv ${ms.ctl![2].toFixed(2)}`)
+  await page.mouse.move(640 + 150, 360 - 150, { steps: 10 })
+  const mf = await waitForBeacon(page, (b) => !!b.ctl && b.ctl[2] < -0.5, 5_000, 'mouse stick: pushed forward = nose down')
+  console.log(`[mouse stick] forward 150 px -> ail ${mf.ctl![1].toFixed(2)} elv ${mf.ctl![2].toFixed(2)}`)
+  await page.screenshot({ path: test.info().outputPath('local-mouse-stick.png') })
+  await page.mouse.up()
+  await waitForBeacon(page, (b) => !b.mouse.grabbed && !!b.ctl && Math.abs(b.ctl[1]) < 0.05 && Math.abs(b.ctl[2]) < 0.05, 5_000, 'mouse stick released')
+
   // Throttle via the keyboard path (Q) raises speed.
   for (let i = 0; i < 20; i++) await page.keyboard.press('q')
   const moving = await waitForBeacon(page, (b) => !!b.flight && b.flight[1] * 3.6 > 5, 20_000, 'speed > 5 km/h')

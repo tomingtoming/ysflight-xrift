@@ -49,9 +49,14 @@ Production: `world/scripts-sync-engine.sh` copies `engine/dist` into
 
 ## Controls
 
-Desktop keys reach the engine while seated (YSFLIGHT defaults: arrows or
-the host's W/A/S/D stick input, Q/A throttle, Z/X/C rudder, G gear, B brake,
-F/R flaps, Tab afterburner, Space gun); Space held stands up.
+Desktop: hold the left mouse button and the mouse is the stick (its travel
+since the grab is the deflection, 250 px = full; release and it springs back
+to centre; the mouse is the look again).  The box at the lower left of the HUD
+glass shows the stick (dot) and rudder (bar), in place of YSFLIGHT's virtual
+joystick model, which the external-view host does not draw.  Keys reach the engine while seated (YSFLIGHT defaults: arrows or
+W/S for the stick, Q/A throttle, Z/X/C rudder, G gear, B brake, F/R flaps,
+Tab afterburner, Space gun); A/D are taken out of the host's seat roll axis
+so A only throttles down.  Space held stands up.
 
 In VR the hands fly the aircraft SaccFlight-style (`world/src/vr/`):
 
