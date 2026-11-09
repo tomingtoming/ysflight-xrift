@@ -11,10 +11,19 @@ import type { Page } from '@playwright/test'
 export async function enterWorld(page: Page, worldUrl: string): Promise<string> {
   const direct = process.env.YSFX_INSTANCE_URL
   await page.goto(direct || worldUrl)
-  if (!/\/instance\//.test(page.url())) {
-    const card = page.locator('h4').filter({ hasText: '#' }).first()
-    const create = page.getByRole('button', { name: /^(➕ )?(新規)?作成$/ }) // "新規作成" with a list, "作成" on the empty-state form
-    await Promise.any([card.waitFor({ timeout: 30_000 }), create.waitFor({ timeout: 30_000 })])
+  // The host may send a world URL straight on to the instance the account
+  // was last in (observed right after another session left): whichever
+  // appears first decides the path -- an instance card, the empty-state
+  // create button, or the instance page's enter button.
+  const enterBtn = page.getByRole('button', { name: /入室する/ })
+  const card = page.locator('h4').filter({ hasText: '#' }).first()
+  const create = page.getByRole('button', { name: /^(➕ )?(新規)?作成$/ }) // "新規作成" with a list, "作成" on the empty-state form
+  const first = await Promise.any([
+    enterBtn.waitFor({ timeout: 30_000 }).then(() => 'enter'),
+    card.waitFor({ timeout: 30_000 }).then(() => 'card'),
+    create.waitFor({ timeout: 30_000 }).then(() => 'create'),
+  ])
+  if (first !== 'enter' && !/\/instance\//.test(page.url())) {
     if (!(await card.count())) {
       await create.click() // creates it and lists it; the card is still the way in
       await card.waitFor({ timeout: 30_000 })
@@ -34,9 +43,8 @@ export async function enterWorld(page: Page, worldUrl: string): Promise<string> 
     await card.click()
     await page.waitForURL(/\/instance\//, { timeout: 30_000 })
   }
-  const enter = page.getByRole('button', { name: /入室する/ })
-  await enter.waitFor({ timeout: 60_000 })
-  await enter.click()
+  await enterBtn.waitFor({ timeout: 60_000 })
+  await enterBtn.click()
   return page.url()
 }
 
