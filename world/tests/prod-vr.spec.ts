@@ -153,10 +153,10 @@ test('VR: kiosk 飛行開始 by controller ray, then fly by SaccFlight-style han
   // cockpit (the kinematic body adds pipeline frames in VR; seatLead.ts
   // measures them and leads the seat surface).
   const fast = await waitForBeacon(page, (x) => !!x.lag && x.lag.speed > 40, 90_000, 'speed > 40 m/s')
-  console.log(`[vr lag:first] speed ${fast.lag!.speed.toFixed(1)} m/s, camera lag ${fast.lag!.eFrames.toFixed(2)} frames, lead ${fast.lag!.leadMs.toFixed(1)} ms`)
+  console.log(`[vr lag:first] speed ${fast.lag!.speed.toFixed(1)} m/s, residual ${fast.lag!.eFrames.toFixed(2)} frames, body lag ${fast.lag!.lagMs.toFixed(1)} ms (frame ${fast.lag!.dtMs.toFixed(1)} ms)`)
   await xr.waitForFrames(90)
   const settled = await waitForBeacon(page, (x) => !!x.lag && x.lag.speed > 40 && Math.abs(x.lag.eFrames) < 0.3, 10_000, 'rig on the cockpit at speed')
-  console.log(`[vr lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, camera lag ${settled.lag!.eFrames.toFixed(2)} frames, lead ${settled.lag!.leadMs.toFixed(1)} ms`)
+  console.log(`[vr lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, residual ${settled.lag!.eFrames.toFixed(2)} frames, body lag ${settled.lag!.lagMs.toFixed(1)} ms, travel jitter ${settled.lag!.jitterCm.toFixed(1)} cm/frame`)
   await xr.attachCapture(testInfo, 'vr-fast')
 
   // Function dial: pull the right thumbstick to 240 deg (sector 4 = Brake),

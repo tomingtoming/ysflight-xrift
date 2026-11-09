@@ -93,18 +93,17 @@ test('desktop: kiosk 飛行開始, W/S and mouse stick, Q/A throttle, camera at 
   // At speed the seated camera must stay on the cockpit: lag.eFrames is the
   // camera's residual lag along the velocity in frames (seatLead.ts).
   const fast = await waitForBeacon(page, (x) => !!x.lag && x.lag.speed > 40, 60_000, 'speed > 40 m/s')
-  console.log(`[pc lag:first] speed ${fast.lag!.speed.toFixed(1)} m/s, camera lag ${fast.lag!.eFrames.toFixed(2)} frames, lead ${fast.lag!.leadMs.toFixed(1)} ms`)
+  console.log(`[pc lag:first] speed ${fast.lag!.speed.toFixed(1)} m/s, residual ${fast.lag!.eFrames.toFixed(2)} frames, body lag ${fast.lag!.lagMs.toFixed(1)} ms (frame ${fast.lag!.dtMs.toFixed(1)} ms)`)
   await page.waitForTimeout(1500)
   const settled = await waitForBeacon(page, (x) => !!x.lag && x.lag.speed > 40 && Math.abs(x.lag.eFrames) < 0.3, 10_000, 'camera on the cockpit at speed')
-  console.log(`[pc lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, body lag ${settled.lag!.eFrames.toFixed(2)} frames, lead ${settled.lag!.leadMs.toFixed(1)} ms`)
-  // The avatar's body (feet) renders on the TRUE seat; the beacon's `cockpit`
-  // is the led seat the desktop camera is placed from (lead x speed ahead of
-  // the true pose), so the feet trail it by exactly the lead.  eFrames above
-  // is the body's residual lag against the true pose (seatLead.ts).
+  console.log(`[pc lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, residual ${settled.lag!.eFrames.toFixed(2)} frames, body lag ${settled.lag!.lagMs.toFixed(1)} ms, travel jitter ${settled.lag!.jitterCm.toFixed(1)} cm/frame`)
+  // Desktop first person: the beacon's `cockpit` is the true seat (no visual
+  // delay) and the avatar's body trails it by its measured lag x speed; the
+  // residual eFrames above is what the visuals are matched to (seatLead.ts).
   const gap = Math.hypot(settled.ground.feet![0] - settled.cockpit![0], settled.ground.feet![2] - settled.cockpit![2])
-  const ledBy = (settled.lag!.leadMs / 1000) * settled.lag!.speed
-  console.log(`[pc body] feet-to-led-seat ${gap.toFixed(2)} m, lead ${ledBy.toFixed(2)} m at ${settled.lag!.speed.toFixed(0)} m/s`)
-  expect(Math.abs(gap - ledBy)).toBeLessThan(0.6)
+  const trail = (settled.lag!.lagMs / 1000) * settled.lag!.speed
+  console.log(`[pc body] feet-to-seat ${gap.toFixed(2)} m, body lag ${trail.toFixed(2)} m at ${settled.lag!.speed.toFixed(0)} m/s`)
+  expect(Math.abs(gap - trail)).toBeLessThan(0.6)
   await page.screenshot({ path: test.info().outputPath('pc-flying.png') })
 
   // Space leaves the seat -- held, not tapped: a synthesised press of

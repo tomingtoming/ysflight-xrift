@@ -99,10 +99,10 @@ test('kiosk start boards the cockpit seat, standing up leaves', async ({ page })
   // velocity in frames (seatLead.ts), measured after the lead is applied.
   for (let i = 0; i < 20; i++) await page.keyboard.press('q')
   const fast = await waitForBeacon(page, (b) => !!b.lag && b.lag.speed > 40, 40_000, 'speed > 40 m/s')
-  console.log(`[kiosk lag:first] speed ${fast.lag!.speed.toFixed(1)} m/s, camera lag ${fast.lag!.eFrames.toFixed(2)} frames, lead ${fast.lag!.leadMs.toFixed(1)} ms`)
+  console.log(`[kiosk lag:first] speed ${fast.lag!.speed.toFixed(1)} m/s, residual ${fast.lag!.eFrames.toFixed(2)} frames, body lag ${fast.lag!.lagMs.toFixed(1)} ms (frame ${fast.lag!.dtMs.toFixed(1)} ms)`)
   await page.waitForTimeout(1500)
   const settled = await waitForBeacon(page, (b) => !!b.lag && b.lag.speed > 40 && Math.abs(b.lag.eFrames) < 0.3, 10_000, 'camera on the cockpit at speed')
-  console.log(`[kiosk lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, body lag ${settled.lag!.eFrames.toFixed(2)} frames, lead ${settled.lag!.leadMs.toFixed(1)} ms`)
+  console.log(`[kiosk lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, residual ${settled.lag!.eFrames.toFixed(2)} frames, body lag ${settled.lag!.lagMs.toFixed(1)} ms, travel jitter ${settled.lag!.jitterCm.toFixed(1)} cm/frame`)
   // The avatar's body (feet) stands under the cockpit seat, not a frame of travel behind it.
   const gap = Math.hypot(settled.ground.feet![0] - settled.cockpit![0], settled.ground.feet![2] - settled.cockpit![2])
   console.log(`[kiosk body] feet-to-seat ${gap.toFixed(2)} m at ${settled.lag!.speed.toFixed(0)} m/s`)

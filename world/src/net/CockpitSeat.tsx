@@ -24,7 +24,7 @@ import { FlightHud } from './FlightHud'
 import { Gunsight, HudGlass } from './HudGlass'
 import { kioskJoinPending, setKioskJoin } from './lobbyStore'
 import { DEFAULT_EYE, EyeCalibrator, type EyeOffset } from './seatEye'
-import { SeatLead, clearSeatLag, readFeet } from './seatLead'
+import { PoseHistory, SeatLead, clearSeatLag, readFeet } from './seatLead'
 import { SaccHands } from '../vr/SaccHands'
 import { TouchConsole, isCoarsePointer } from './TouchConsole'
 import { saccStatus } from '../vr/saccControls'
@@ -58,7 +58,8 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
   const group = useRef<Group>(null) // true aircraft pose: HUD, gunsight, hands
   const seatGroup = useRef<Group>(null) // the pose the host reads: true pose led by the measured delay
   const lead = useRef(new SeatLead())
-  const leadVec = useRef(new Vector3())
+  const history = useRef(new PoseHistory())
+  const eyeTmp = useRef(new Vector3())
   const camPos = useRef(new Vector3())
   const mouseWas = useRef(false)
   const mouseOwner = useRef(false)
@@ -145,6 +146,7 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     seatedRef.current = true
     calib.current.reset()
     lead.current.reset()
+    history.current.reset()
     publishSeat(COCKPIT_SEAT_ID)
     // Boarding again: hand the throttle back to the keys (parkAircraft set the block).
     if (mod) mod.HEAPF32[(mod._FsVrControlDataPointer() >> 2) + 6] = 0
@@ -223,6 +225,11 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
       const f = mod.HEAPF32
       f[c + 3] = 0; f[c + 4] = 0; f[c + 5] = 0; f[c + 6] = 1
     }
+    // Desktop first person: the camera sits on the cockpit eye point of the
+    // previous frame's HUD pose (g.matrixWorld is still last frame's here).
+    const cp0 = cockpitRef.current
+    eyeTmp.current.set(cp0[0], cp0[1], cp0[2]).applyMatrix4(g.matrixWorld)
+    const firstPerson = camPos.current.distanceTo(eyeTmp.current) < 0.6
     if (airIndex >= 0) {
       const b = airBase(mod, airIndex)
       const f = mod.HEAPF32
@@ -243,28 +250,27 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
       }
     }
     // The host reads the seat surface after this callback (priority -2 runs
-    // before its -1 camera sync and 0 body follow); lead the whole pose by
-    // the body's measured residual delay so the avatar sits in the cockpit
-    // and the camera agrees with the HUD (seatLead.ts).
+    // before its -1 camera sync and 0 body follow) and gets the TRUE pose.
+    // Its body lands a frame late, and in VR the eye rides the body, so what
+    // the eye sees of the aircraft -- the HUD group here, the engine's drawn
+    // own aircraft through the player-visual block -- is sampled from the
+    // true pose history the body's measured lag back (seatLead.ts).  The
+    // desktop first-person camera is placed from the seat itself, on time:
+    // no delay there.  Third person shows the avatar: delay as in VR.
     const cp = cockpitRef.current, e = eyeRef.current
     const body = readFeet(users, feet.current)
     const ref: [number, number, number] = body ? [cp[0], cp[1] - e.dy, cp[2] - e.dz] : cp
-    const lv = lead.current.update(dt, g.matrix, ref, body ?? camPos.current, seatedRef.current && flyingRef.current, leadVec.current)
-    // The seat handed to the host is always led: its body lands a frame late,
-    // so the avatar renders on the true aircraft.  The HUD group follows the
-    // EYE.  On desktop the host places the seated camera from the led seat
-    // surface itself, so the HUD is led with it; in VR the eye rides the
-    // body, which renders on the true pose, so the HUD stays on the true pose
-    // (otherwise the glass runs a frame of travel ahead of the eye).
+    const active = seatedRef.current && flyingRef.current
+    lead.current.update(dt, g.matrix, ref, body ?? camPos.current, active)
     sg.matrix.copy(g.matrix)
-    sg.matrix.elements[12] += lv.x
-    sg.matrix.elements[13] += lv.y
-    sg.matrix.elements[14] += lv.z
-    if (!gl.xr?.isPresenting) {
-      g.matrix.elements[12] += lv.x
-      g.matrix.elements[13] += lv.y
-      g.matrix.elements[14] += lv.z
-    }
+    const now = performance.now() / 1000
+    history.current.push(now, g.matrix)
+    const delay = active && (gl.xr?.isPresenting || !firstPerson) ? lead.current.lag : 0
+    const vis = mod._FsVrPlayerVisualDataPointer() >> 2
+    if (delay > 0.0005 && history.current.sample(now - delay, g.matrix)) {
+      mod.HEAPF32[vis] = 1
+      for (let i = 0; i < 16; i++) mod.HEAPF32[vis + 1 + i] = g.matrix.elements[i]
+    } else mod.HEAPF32[vis] = 0
     g.updateMatrixWorld(true)
     sg.updateMatrixWorld(true)
     if (airIndex >= 0) {

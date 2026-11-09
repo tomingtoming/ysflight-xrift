@@ -82,8 +82,8 @@ export interface Beacon {
   vr: { active: boolean; right: { grabbed: boolean; sel: number; visible: boolean; pos: number[] }; left: { grabbed: boolean; sel: number; visible: boolean; pos: number[] }; keys: number; lastKey: string; ail: number; elv: number; rud: number; thr: number; ab: boolean }
   /** Seat eye calibration (src/net/seatEye.ts): hip-to-eye measured, residual after applying. */
   eye: { dx: number; dy: number; dz: number; n: number; res: number[] } | null
-  /** Seated camera lag (frames at 60 Hz, measured before the lead) and the lead applied (ms). */
-  lag: { speed: number; eFrames: number; leadMs: number } | null
+  /** Seated body lag: residual vs the delayed visual (frames), the body lag the visuals are delayed by (ms), frame time (ms). */
+  lag: { speed: number; eFrames: number; lagMs: number; dtMs: number; jitterCm: number } | null
   console: Array<{ id: string; pos: number[] }> | null
   mouse: { enabled: boolean; grabbed: boolean; ail: number; elv: number; grabs: number }
   gates: { coarse: boolean; xr: boolean }

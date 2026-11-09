@@ -12,6 +12,7 @@ export interface YsflightModule {
   _FsVrEyeDataPointer: (eye: number) => number
   _FsVrExternalViewDataPointer: () => number
   _FsVrPlayerPoseDataPointer: () => number
+  _FsVrPlayerVisualDataPointer: () => number
   _FsVrControlDataPointer: () => number
   _FsVrHandPoseDataPointer: () => number
   _FsVrAircraftStateDataPointer: () => number
