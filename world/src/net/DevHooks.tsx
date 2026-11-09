@@ -10,8 +10,8 @@
 import { useSeatContext } from '@xrift/world-components'
 import { useEffect } from 'react'
 import { useEngine } from '../engine/engineStore'
-import { setKioskJoin } from './lobbyStore'
-import { requestJoin } from './netState'
+import { setKioskJoin, setPendingJoin } from './lobbyStore'
+import { NET_FLYING, readNetState, requestJoin, requestLeave, type NetState } from './netState'
 
 export function DevHooks() {
   const seat = useSeatContext() as unknown as Record<string, unknown>
@@ -25,6 +25,13 @@ export function DevHooks() {
     }
     w.__ysfxLobbyStart = (air: string, stp: string) => {
       if (!mod) return 'engine not ready'
+      const ns: NetState = { mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 }
+      if (readNetState(mod, ns).state === NET_FLYING) {
+        // Same as the kiosk: let the parked aircraft go, join from standby.
+        setPendingJoin({ air, stp })
+        requestLeave(mod)
+        return 'replacing'
+      }
       setKioskJoin(true)
       requestJoin(mod, air, stp)
       return 'requested'

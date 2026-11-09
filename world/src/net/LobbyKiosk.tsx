@@ -14,9 +14,9 @@ import { useFrame } from '@react-three/fiber'
 import { useDefaultFont } from '@xrift/world-components'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useEngine } from '../engine/engineStore'
-import { publishLobby } from './StateBeacon'
-import { countKioskClick, noteKioskPointer, setKioskJoin } from './lobbyStore'
-import { NET_FLYING, airBase, airCount, lobbyAirNames, lobbyStpNames, lobbyStpPositions, readNetState, requestJoin, type NetState } from './netState'
+import { localSeatId, publishLobby } from './StateBeacon'
+import { countKioskClick, noteKioskPointer, pendingJoin, setKioskJoin, setPendingJoin } from './lobbyStore'
+import { NET_FLYING, airBase, airCount, lobbyAirNames, lobbyStpNames, lobbyStpPositions, readNetState, requestJoin, requestLeave, type NetState } from './netState'
 import type { NetRole } from './NetSession'
 
 const PAGE = 10
@@ -76,10 +76,17 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
       }
     }
     const ns = readNetState(mod, netRef.current)
+    const seated = localSeatId() !== null
     const who = role === 'host' ? 'サーバ' : role === 'client' ? 'クライアント' : '接続中'
-    const st = !ns.ready ? '準備中' : ns.waiting ? '参加承認待ち' : ns.state === NET_FLYING ? '飛行中' : '待機'
+    const st = !ns.ready ? '準備中' : ns.waiting ? '参加承認待ち' : ns.state === NET_FLYING ? (seated ? '飛行中' : '機体を置いて待機（飛行開始で乗り換え）') : '待機'
     setStatus(`${who}  部屋 ${room ?? '-'}  ${st}  接続 ${ns.connected}${rejectNote}`)
-    setCanStart(ns.ready && !ns.waiting && ns.state !== NET_FLYING)
+    setCanStart(ns.ready && !ns.waiting && (ns.state !== NET_FLYING || !seated))
+    const pj = pendingJoin()
+    if (pj && ns.ready && !ns.waiting && ns.state !== NET_FLYING) {
+      setPendingJoin(null)
+      setKioskJoin(true)
+      requestJoin(mod, pj.air, pj.stp)
+    }
     if (ns.rejected > rejectedSeen.current) {
       rejectedSeen.current = ns.rejected
       setKioskJoin(false)
@@ -100,7 +107,7 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
       }
       if (occ.size !== occupied.size || [...occ].some((x) => !occupied.has(x))) {
         setOccupied(occ)
-        if (occ.has(selStp) && ns.state !== NET_FLYING) {
+        if (occ.has(selStp) && !seated) {
           const free = stps.find((x) => !occ.has(x))
           if (free) {
             setSelStp(free)
@@ -114,6 +121,12 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
   const start = useCallback(() => {
     countKioskClick()
     if (!mod || !canStart) return
+    if (readNetState(mod, netRef.current).state === NET_FLYING) {
+      // A parked aircraft still stands: let it go first, join when the engine is back in standby.
+      setPendingJoin({ air: selAir, stp: selStp })
+      requestLeave(mod)
+      return
+    }
     setKioskJoin(true)
     requestJoin(mod, selAir, selStp)
   }, [mod, canStart, selAir, selStp])

@@ -39,6 +39,8 @@ export interface YsfxBeacon {
   cam: { pos: number[]; quat: number[] } | null
   /** Keys the engine was handed (count, last `code->fskey`). */
   keys: { n: number; last: string }
+  /** The cockpit seat's origin in world while the local player's aircraft exists (parked or flown). */
+  cockpit: number[] | null
   /** Where the last engine draw went: viewport, eye, host render target, framebuffer bound, drawing buffer. */
   gfx: { vp: number[]; eye: number; rt: null | { w: number; h: number; samples: number }; fb: boolean; buf: number[] }
   /** Engine VR control block [0..8]: stick grabbed, aileron, elevator, rudder, throttle grabbed, throttle, throttle ever, confirm, stick ever. */
@@ -74,7 +76,15 @@ export function publishConsole(list: Array<{ id: string; pos: number[] }> | null
   consoleButtons = list
 }
 
+let cockpitWorld: number[] | null = null
+/** CockpitSeat publishes its seat origin (world) while an aircraft carries it; null when parked out of reach. */
+export function publishCockpit(pos: number[] | null): void {
+  cockpitWorld = pos
+}
+
 let localSeat: string | null = null
+/** The seat the local user occupies, for other world code (LobbyKiosk). */
+export function localSeatId(): string | null { return localSeat }
 /** The seat publishes the local user's seat here. */
 export function publishSeat(id: string | null): void {
   localSeat = id
@@ -129,6 +139,7 @@ export function StateBeacon({ role, room }: { role: NetRole | null; room: string
       gates: { coarse: isCoarsePointer(), xr: !!gl.xr?.isPresenting },
       cam: { pos: v.current.toArray(), quat: q.current.toArray() },
       keys: { n: ysfxStats.keys, last: ysfxStats.lastKey },
+      cockpit: cockpitWorld,
       gfx: { vp: ysfxStats.lastVp, eye: ysfxStats.lastEye, rt: ysfxStats.rt, fb: ysfxStats.fb, buf: ysfxStats.buf },
     }
     if (mod) {

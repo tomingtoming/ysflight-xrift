@@ -68,6 +68,7 @@ export interface Beacon {
   bg: number
   cam: { pos: number[]; quat: number[] } | null
   keys: { n: number; last: string }
+  cockpit: number[] | null
   gfx: { vp: number[]; eye: number; rt: null | { w: number; h: number; samples: number }; fb: boolean; buf: number[] }
   ctl: number[] | null
   lobby: number[] | null

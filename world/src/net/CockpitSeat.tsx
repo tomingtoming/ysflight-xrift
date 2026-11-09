@@ -1,17 +1,19 @@
 /**
  * CockpitSeat — the pilot's seat for flights started from the LobbyKiosk.
  *
- * It has no pedestal: while nobody flies it is parked out of reach.  When
- * the engine reports the local player's aircraft (after a kiosk join) the
- * seat moves into that cockpit and the player is sat down automatically.
- * Standing up (Space / A) leaves the flight and teleports the player back to
- * the apron; a crash or shoot-down returns the seat to the apron too, where
- * the pilot can stand up and pick again at the kiosk.
+ * It has no pedestal: while the player has no aircraft it is parked out of
+ * reach.  When the engine reports the local player's aircraft (after a kiosk
+ * join) the seat moves into that cockpit and the player is sat down
+ * automatically.  Standing up (Space / A) leaves the aircraft where it is --
+ * throttle idle, brake on, exterior drawn -- and the seat stays in the
+ * cockpit so the pilot can walk back and board again; the kiosk's 飛行開始
+ * replaces the parked aircraft with the new one.  A crash or shoot-down
+ * returns the seat to the apron, where the pilot stands up and picks again.
  *
  * Other clients get seats on every aircraft from RemoteAircraftSeats.
  */
 import { useFrame, useThree } from '@react-three/fiber'
-import { Seat, useSeatContext, useTeleport, useUsers } from '@xrift/world-components'
+import { Seat, useSeatContext, useUsers } from '@xrift/world-components'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { setPiloting, useEngine } from '../engine/engineStore'
@@ -26,8 +28,8 @@ import { SeatLead, clearSeatLag } from './seatLead'
 import { SaccHands } from '../vr/SaccHands'
 import { TouchConsole, isCoarsePointer } from './TouchConsole'
 import { saccStatus } from '../vr/saccControls'
-import { publishSeat } from './StateBeacon'
-import { NET_FLYING, airBase, findAircraftByPilot, pilotNameOf, readNetState, requestLeave, type NetState } from './netState'
+import { publishCockpit, publishSeat } from './StateBeacon'
+import { NET_FLYING, airBase, findAircraftByPilot, pilotNameOf, readNetState, type NetState } from './netState'
 
 interface SeatOccupant { id: string; isLocalUser: boolean }
 interface SeatControlInput { forward: number; right: number }
@@ -40,7 +42,7 @@ const STICK_RATE = 2.5
 export const COCKPIT_SEAT_ID = 'ysfx-cockpit'
 
 export interface CockpitSeatProps {
-  /** Where the seat rests (and the player is returned to) when not flying. */
+  /** Where the seat rests while the player has no aircraft. */
   home: [number, number, number]
   homeYaw?: number
 }
@@ -49,7 +51,6 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
   const mod = useEngine()
   const { localUser } = useUsers()
   const { sit } = useSeatContext()
-  const { teleport } = useTeleport()
   const gl = useThree((s) => s.gl)
   const camera = useThree((s) => s.camera)
   const group = useRef<Group>(null) // true aircraft pose: HUD, gunsight, hands
@@ -71,7 +72,12 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
   const eyeRef = useRef(eye)
   const calib = useRef(new EyeCalibrator())
   const [hudOn, setHudOn] = useState(false)
+  /** The aircraft exists and nobody local sits: the seat can be clicked to board again. */
+  const [reboardable, setReboardable] = useState(false)
   const stickRef = useRef({ ail: 0, elv: 0 })
+  // Key taps release on the next frame (the engine sees key-state edges per step).
+  const tapRelease = useRef<string[]>([])
+  const seatWorld = useRef(new Vector3())
   const parked = useRef(new Matrix4().compose(new Vector3(home[0], home[1], home[2]), new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), homeYaw), new Vector3(1, 1, 1)))
 
   const pressKey = useCallback((code: string) => {
@@ -79,6 +85,20 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     mod.ccall('YsfxKeyByCode', 'number', ['string', 'number'], [code, 1])
     mod.ccall('YsfxKeyByCode', 'number', ['string', 'number'], [code, 0])
   }, [mod])
+
+  const tapKey = useCallback((code: string) => {
+    if (!mod) return
+    mod.ccall('YsfxKeyByCode', 'number', ['string', 'number'], [code, 1])
+    tapRelease.current.push(code)
+  }, [mod])
+
+  /** Leave the aircraft standing: throttle idle, brake on. */
+  const parkAircraft = useCallback(() => {
+    if (!mod) return
+    const f = mod.HEAPF32
+    const d = mod._FsVrFlightDataPointer() >> 2
+    if (f[d] !== 0 && f[d + 10] < 0.5) tapKey('KeyB') // the idle throttle is enforced per frame below
+  }, [mod, tapKey])
 
   const releaseStick = useCallback(() => {
     if (!mod) return
@@ -124,19 +144,20 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     calib.current.reset()
     lead.current.reset()
     publishSeat(COCKPIT_SEAT_ID)
-  }, [])
+    // Boarding again: hand the throttle back to the keys (parkAircraft set the block).
+    if (mod) mod.HEAPF32[(mod._FsVrControlDataPointer() >> 2) + 6] = 0
+  }, [mod])
   const onLeave = useCallback((o: SeatOccupant) => {
     if (!o.isLocalUser) return
     seatedRef.current = false
     publishSeat(null)
     clearSeatLag()
     setKioskJoin(false)
-    if (mod) {
-      endLocalFlight()
-      requestLeave(mod)
-    }
-    teleport({ position: home, yaw: (homeYaw * 180) / Math.PI })
-  }, [mod, endLocalFlight, teleport, home, homeYaw])
+    // The aircraft stays in the session, parked; the host puts the player at
+    // the seat's exit position beside it.
+    endLocalFlight()
+    parkAircraft()
+  }, [endLocalFlight, parkAircraft])
 
   useFrame((_s, dt) => {
     const g = group.current
@@ -144,6 +165,8 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     if (!g || !sg || !mod) return
     g.matrixAutoUpdate = false
     sg.matrixAutoUpdate = false
+    for (const code of tapRelease.current) mod.ccall('YsfxKeyByCode', 'number', ['string', 'number'], [code, 0])
+    tapRelease.current.length = 0
     const cam = gl.xr?.isPresenting ? gl.xr.getCamera() : camera
     camPos.current.setFromMatrixPosition(cam.matrixWorld)
     if (seatedRef.current) {
@@ -188,6 +211,16 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     } else if (flyingRef.current) {
       endLocalFlight()
     }
+    const canBoard = flying && airIndex >= 0 && !seatedRef.current
+    if (canBoard !== reboardable) setReboardable(canBoard)
+    if (flying && !seatedRef.current) {
+      // Parked: keep the throttle at idle every frame.  The hands / switch
+      // panel clear the throttle flag when they unmount, so a one-off write
+      // at leave time would not survive them.
+      const c = mod._FsVrControlDataPointer() >> 2
+      const f = mod.HEAPF32
+      f[c + 3] = 0; f[c + 4] = 0; f[c + 5] = 0; f[c + 6] = 1
+    }
     if (airIndex >= 0) {
       const b = airBase(mod, airIndex)
       const f = mod.HEAPF32
@@ -217,6 +250,10 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     sg.matrix.elements[14] += lv.z
     g.updateMatrixWorld(true)
     sg.updateMatrixWorld(true)
+    if (airIndex >= 0) {
+      const cp = cockpitRef.current, e = eyeRef.current
+      publishCockpit(seatWorld.current.set(cp[0], cp[1] - e.dy, cp[2] - e.dz).applyMatrix4(g.matrixWorld).toArray())
+    } else publishCockpit(null)
   }, -2)
 
   useEffect(() => () => endLocalFlight(), [endLocalFlight])
@@ -229,8 +266,12 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
       </group>
       <group ref={seatGroup}>
         <Seat id={COCKPIT_SEAT_ID} position={seatPos} exitOffset={{ forward: 0, right: -3, up: 0 }}
-          interactionText="操縦席" enabled={false} onEnter={onEnter} onLeave={onLeave} onControlInput={onControlInput}>
-          {null}
+          interactionText="操縦席に乗る" enabled={reboardable} onEnter={onEnter} onLeave={onLeave} onControlInput={onControlInput}>
+          {/* cockpit-sized hit volume so the crosshair / ray finds the seat of a parked aircraft */}
+          <mesh position={[0, 0.5, 0]}>
+            <boxGeometry args={[1.0, 1.3, 1.6]} />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+          </mesh>
         </Seat>
       </group>
     </>

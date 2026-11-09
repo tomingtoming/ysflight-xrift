@@ -79,6 +79,10 @@ THR−/THR＋ step the throttle 10 %, A/B, GEAR, BRK, FLP DN/UP tap the engine
 keys, FIRE holds the gun for half a second; each button shows its live state.
 The panel appears on coarse-pointer devices only.
 
+Standing up leaves the aircraft where it is, throttle idle and brake on, with its
+exterior drawn; walk back and click the cockpit to board it again.  飛行開始 at
+the kiosk replaces a parked aircraft with the new one.
+
 Seats put the pilot's eye on the engine's cockpit point: 1.0 s after sitting the
 seat measures the camera relative to its origin for 0.5 s and moves the hip
 point so the eye lands there (`world/src/net/seatEye.ts`), for any avatar

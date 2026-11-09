@@ -18,3 +18,13 @@ const ev: Record<string, number> = { enter: 0, leave: 0, down: 0, up: 0, click: 
 let lastPointer = ''
 export function noteKioskPointer(kind: 'enter' | 'leave' | 'down' | 'up' | 'click', pointerType: string): void { ev[kind]++; lastPointer = `${kind}:${pointerType}` }
 export function kioskHovers(): { hovers: number; lastPointer: string; ev: Record<string, number> } { return { hovers: ev.enter, lastPointer, ev: { ...ev } } }
+
+/**
+ * A kiosk start requested while the player's previous aircraft still stood:
+ * the engine must let that one go first; LobbyKiosk's frame loop joins once
+ * it is back in standby.  Shared so the dev hook can start the same way.
+ */
+let pendingJoinReq: { air: string; stp: string } | null = null
+export function setPendingJoin(j: { air: string; stp: string } | null): void { pendingJoinReq = j }
+export function pendingJoin(): { air: string; stp: string } | null { return pendingJoinReq }
+

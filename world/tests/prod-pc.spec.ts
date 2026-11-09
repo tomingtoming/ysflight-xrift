@@ -53,11 +53,11 @@ async function kioskStart(page: Page) {
   const flying = await waitForBeacon(page, (x) => !!x.net && x.net.state === NET_FLYING && x.aircraft.some((a) => a.player), 40_000, 'flying')
   expect(flying.aircraft.some((a) => a.player)).toBe(true)
   await waitForBeacon(page, (x) => !!x.hud && /SPD/.test(x.hud[0]), 10_000, 'HUD')
-  return cur
+  return { cur, look, walk }
 }
 
 test('desktop: kiosk 飛行開始, W/S and mouse stick, Q/A throttle, camera at speed, Space leaves', async ({ page }) => {
-  const cur = await kioskStart(page)
+  const { cur } = await kioskStart(page)
 
   await page.keyboard.down('w')
   const stick = await waitForBeacon(page, (x) => !!x.ctl && x.ctl[0] === 1 && x.ctl[2] < -0.5, 10_000, 'stick forward')
@@ -110,11 +110,13 @@ test('desktop: kiosk 飛行開始, W/S and mouse stick, Q/A throttle, camera at 
     left = await waitForBeacon(page, (x) => x.seat === null, 6_000, 'left the seat').catch(() => null)
   }
   if (!left) throw new Error(`still seated after Space; last beacon: ${JSON.stringify(await lastBeacon(page))}`)
-  await waitForBeacon(page, (x) => !!x.net && x.net.state !== NET_FLYING, 20_000, 'engine left the flight')
+  // The aircraft stays, parked (throttle idle, brake on), the player beside it.
+  const parked = await waitForBeacon(page, (x) => !!x.net && x.net.state === NET_FLYING && x.aircraft.some((a) => a.player && a.alive) && !!x.flight && x.flight[7] < 0.05 && x.flight[10] > 0.5 && !!x.cockpit, 15_000, 'aircraft parked with the brake on')
+  console.log(`[pc parked] throttle ${parked.flight![7].toFixed(2)} brake ${parked.flight![10]} speed ${parked.flight![1].toFixed(1)}`)
 })
 
-test('desktop: kiosk seat puts the eye on the cockpit point; B/F/Q/A keys; leave and settle on the apron', async ({ page }) => {
-  await kioskStart(page)
+test('desktop: kiosk seat puts the eye on the cockpit point; B/F/Q/A keys; leave, settle, board the parked aircraft again', async ({ page }) => {
+  const { cur, look, walk } = await kioskStart(page)
   // The seat measures the camera 1.0-1.5 s after sitting and moves its origin
   // so the eye lands on the engine's cockpit point (seatEye.ts).
   const eye = await waitForBeacon(page, (x) => !!x.eye && x.eye.n > 0 && Math.abs(x.eye.res[1]) < 0.05 && Math.abs(x.eye.res[2]) < 0.05, 10_000, 'eye on the cockpit point')
@@ -134,6 +136,7 @@ test('desktop: kiosk seat puts the eye on the cockpit point; B/F/Q/A keys; leave
   await waitForBeacon(page, (x) => !!x.flight && x.flight[7] < 0.05, 5_000, 'A brings the throttle back')
   // Enter / Backspace / Escape never reach the engine (they would open its
   // invisible 2D dialogs; ESC twice would end the flight).
+  await page.waitForTimeout(400) // the beacon is 10 Hz: let the last A land in it
   const n0 = (await lastBeacon(page))!.keys.n
   await page.keyboard.press('Enter'); await page.keyboard.press('Backspace')
   await page.waitForTimeout(400)
@@ -147,9 +150,23 @@ test('desktop: kiosk seat puts the eye on the cockpit point; B/F/Q/A keys; leave
   const left = await waitForBeacon(page, (x) => x.seat === null, 8_000, 'left the seat')
   expect(left.seat).toBeNull()
   console.log(`[kiosk after leave] feet ${JSON.stringify(left.ground.feet)}`)
-  // Teleported home above the apron; the character settles onto the ground.
+  // Put down at the seat's exit position beside the parked aircraft; the character settles onto the runway.
   await page.waitForTimeout(2500)
   const settled = (await lastBeacon(page))!
   console.log(`[kiosk settled] feet ${JSON.stringify(settled.ground.feet)}`)
   expect(settled.ground.feet![1]).toBeLessThan(0.1)
+  // The aircraft stays, parked (throttle idle, brake on, still the player's) ...
+  const parked = await waitForBeacon(page, (x) => !!x.net && x.net.state === NET_FLYING && x.aircraft.some((a) => a.player && a.alive) && !!x.flight && x.flight[7] < 0.05 && x.flight[10] > 0.5 && !!x.cockpit, 15_000, 'aircraft parked with the brake on')
+  console.log(`[pc parked] throttle ${parked.flight![7].toFixed(2)} brake ${parked.flight![10]} speed ${parked.flight![1].toFixed(1)}`)
+  // ... and its cockpit seat can be boarded again from the ground.
+  const cp = parked.cockpit!
+  const aimBack = await walkAndAim(page, look, walk, 2.4, { id: 'cockpit', p: [cp[0], cp[1] + 0.5, cp[2]] })
+  console.log(`[pc reboard aim] dist ${aimBack.dist.toFixed(2)} dyaw ${aimBack.dyaw.toFixed(1)} dpitch ${aimBack.dpitch.toFixed(1)}`)
+  await page.screenshot({ path: test.info().outputPath('pc-reboard.png') })
+  await page.mouse.click(cur.mx, cur.my)
+  const back = await waitForBeacon(page, (x) => x.seat === 'ysfx-cockpit', 8_000, 'boarded the parked aircraft again')
+  expect(back.net!.state).toBe(NET_FLYING)
+  await waitForBeacon(page, (x) => !!x.hud && /SPD/.test(x.hud[0]), 10_000, 'HUD back')
+  await page.keyboard.down('Space'); await page.waitForTimeout(600); await page.keyboard.up('Space')
+  await waitForBeacon(page, (x) => x.seat === null, 8_000, 'left again')
 })

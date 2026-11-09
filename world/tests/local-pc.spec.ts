@@ -105,8 +105,17 @@ test('kiosk start boards the cockpit seat, standing up leaves', async ({ page })
   console.log(`[kiosk lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, camera lag ${settled.lag!.eFrames.toFixed(2)} frames, lead ${settled.lag!.leadMs.toFixed(1)} ms`)
   await page.screenshot({ path: test.info().outputPath('local-kiosk-fast.png') })
 
-  // Space (held) is the host's leave key in the dev environment too.
+  // Space (held) is the host's leave key in the dev environment too.  The
+  // aircraft stays, parked: throttle idle, brake on, still the player's.
+  const airBefore = settled.net!.playerAirId
   await page.keyboard.down('Space'); await page.waitForTimeout(600); await page.keyboard.up('Space')
-  const left = await waitForBeacon(page, (b) => b.seat === null && !!b.net && b.net.state !== NET_FLYING, 20_000, 'left the flight')
+  const left = await waitForBeacon(page, (b) => b.seat === null && !!b.net && b.net.state === NET_FLYING && b.aircraft.some((a) => a.player && a.alive), 20_000, 'left the seat, aircraft parked')
+  const parked = await waitForBeacon(page, (b) => !!b.flight && b.flight[7] < 0.05 && b.flight[10] > 0.5, 10_000, 'parked: throttle idle, brake on')
+  console.log(`[kiosk parked] throttle ${parked.flight![7].toFixed(2)} brake ${parked.flight![10]} cockpit ${JSON.stringify(parked.cockpit?.map((n) => Math.round(n)))}`)
   expect(left.seat).toBeNull()
+  // 飛行開始 again replaces the parked aircraft with a new one.
+  await page.evaluate(() => (window as unknown as { __ysfxLobbyStart: (a: string, s: string) => string }).__ysfxLobbyStart('F-16C_FIGHTINGFALCON', 'RW01_03'))
+  const again = await waitForBeacon(page, (b) => b.seat === 'ysfx-cockpit' && !!b.net && b.net.state === NET_FLYING && b.net.playerAirId !== airBefore && b.net.playerAirId >= 0, 40_000, 'new aircraft boarded')
+  console.log(`[kiosk again] aircraft ${airBefore} -> ${again.net!.playerAirId}, alive ${again.aircraft.filter((a) => a.alive).length}`)
+  expect(again.aircraft.filter((a) => a.alive).length).toBe(1)
 })
