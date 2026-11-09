@@ -20,6 +20,8 @@ test('desktop: walk, sit by crosshair, stick, throttle, leave', async ({ page })
   const b = await waitForBeacon(page, (x) => x.role !== null && !!x.net && x.net.ready, 150_000, 'session ready')
   expect(['host', 'client']).toContain(b.role)
   await waitForBeacon(page, (x) => !!x.cam && x.seats.length > 0, 20_000, 'camera + seats')
+  const g0 = await waitForBeacon(page, (x) => x.ground?.field != null, 20_000, 'ground probe (needs world >= 15)')
+  console.log(`[ground:prod standing] ${JSON.stringify(g0.ground)}`)
 
   await page.mouse.click(640, 360)
   await page.waitForTimeout(800)
@@ -38,6 +40,7 @@ test('desktop: walk, sit by crosshair, stick, throttle, leave', async ({ page })
   await page.screenshot({ path: test.info().outputPath('pc-aimed.png') })
 
   await page.mouse.click(mx, my)
+  console.log(`[ground:prod at pedestal] ${JSON.stringify((await lastBeacon(page))?.ground)}`)
   const seated = await waitForBeacon(page, (x) => x.seat !== null, 8_000, 'seated after click')
   expect(seated.seat).toBe(aim.id)
   const flying = await waitForBeacon(page, (x) => !!x.net && x.net.state === NET_FLYING, 40_000, 'flying')
@@ -66,4 +69,42 @@ test('desktop: walk, sit by crosshair, stick, throttle, leave', async ({ page })
   }
   if (!left) throw new Error(`still seated after Space; last beacon: ${JSON.stringify(await lastBeacon(page))}`)
   await waitForBeacon(page, (x) => !!x.net && x.net.state !== NET_FLYING, 20_000, 'engine left the flight')
+})
+
+// LobbyKiosk geometry (World.tsx / LobbyKiosk.tsx): panel centre, yaw PI,
+// 1700x1000 px at 1 mm/px, 28 px padding, 飛行開始 button 320x80 at the
+// bottom-right.  Local +x maps to world -x under the yaw.
+const KIOSK: [number, number, number] = [-117 + 8, 1.6, 640 + 5]
+const START_BTN: [number, number, number] = [KIOSK[0] - (1700 / 2 - 28 - 160) / 1000, KIOSK[1] - (1000 / 2 - 28 - 40) / 1000, KIOSK[2]]
+
+test('desktop: kiosk 飛行開始 boards the cockpit seat', async ({ page }) => {
+  await watchBeacon(page)
+  await enterWorld(page, WORLD_URL)
+  await waitForBeacon(page, (x) => x.role !== null && !!x.net && x.net.ready, 150_000, 'session ready')
+  const lobby = await waitForBeacon(page, (x) => !!x.lobby && x.lobby[0] > 10, 30_000, 'kiosk lists')
+  console.log(`[lobby:prod] aircraft ${lobby.lobby![0]}, start positions ${lobby.lobby![1]}`)
+
+  await page.mouse.click(640, 360)
+  await page.waitForTimeout(800)
+  let mx = 640, my = 360
+  const look = async (dyaw: number, dpitch: number) => {
+    const dx = -dyaw / DEG_PER_PX, dy = -dpitch / DEG_PER_PX
+    mx += dx; my += dy
+    await page.mouse.move(mx, my, { steps: Math.max(2, Math.ceil(Math.hypot(dx, dy) / 20)) })
+    await page.waitForTimeout(350)
+  }
+  const walk = async (ms: number) => { await page.keyboard.down('w'); await page.waitForTimeout(ms); await page.keyboard.up('w') }
+  const aim = await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: START_BTN })
+  console.log(`[kiosk aim] dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
+  await page.screenshot({ path: test.info().outputPath('pc-kiosk.png') })
+
+  await page.mouse.click(mx, my)
+  const seated = await waitForBeacon(page, (x) => x.seat === 'ysfx-cockpit', 30_000, 'auto-seated after 飛行開始')
+  expect(seated.net!.state).toBe(NET_FLYING)
+  await waitForBeacon(page, (x) => !!x.hud && /SPD/.test(x.hud[0]), 10_000, 'HUD')
+  await page.screenshot({ path: test.info().outputPath('pc-kiosk-flying.png') })
+  await page.keyboard.down('Space'); await page.waitForTimeout(600); await page.keyboard.up('Space')
+  const left = await waitForBeacon(page, (x) => x.seat === null, 8_000, 'left the seat')
+  expect(left.seat).toBeNull()
+  console.log(`[kiosk after leave] feet ${JSON.stringify(left.ground.feet)}`)
 })

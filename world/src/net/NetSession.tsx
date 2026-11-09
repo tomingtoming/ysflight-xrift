@@ -34,7 +34,7 @@ function makeRoom(): string {
 export type NetRole = 'host' | 'client'
 
 export interface NetSessionProps {
-  children?: (role: NetRole, pilotName: string) => React.ReactNode
+  children?: (role: NetRole, pilotName: string, room: string | null) => React.ReactNode
 }
 
 export function NetSession({ children }: NetSessionProps) {
@@ -80,7 +80,7 @@ export function NetSession({ children }: NetSessionProps) {
     <>
       <YsflightEngine key={`${role}:${room}`} args={args} signalUrl={SIGNAL_URL} roomCode={room} />
       <StateBeacon role={role} room={room} />
-      {children?.(role, pilotName)}
+      {children?.(role, pilotName, room)}
     </>
   )
 }

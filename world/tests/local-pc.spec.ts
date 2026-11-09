@@ -3,7 +3,7 @@
  * Forces the host role (?ysfxnet=host:ROOM) so no election is needed.
  */
 import { expect, test } from '@playwright/test'
-import { NET_FLYING, waitForBeacon, watchBeacon } from './helpers'
+import { NET_FLYING, lastBeacon, waitForBeacon, watchBeacon } from './helpers'
 
 const ROOM = '12345678'
 
@@ -14,6 +14,16 @@ test('sit on a pedestal -> join -> stick and HUD', async ({ page }) => {
   // Engine boots in -server mode and the lobby becomes ready.
   const ready = await waitForBeacon(page, (b) => b.role === 'host' && !!b.net && b.net.mode === 1 && b.net.ready, 90_000, 'server ready')
   expect(ready.room).toBe(ROOM)
+
+  // Standing on the field: the engine draws the airfield while nobody is
+  // aboard (lobby standby, external-view host).  Draw calls keep coming
+  // and the frame is captured for a visual check.
+  const standby = await waitForBeacon(page, (b) => b.draws > 60, 20_000, 'engine drawing in standby')
+  expect(standby.net!.state).toBe(0)
+  await page.waitForTimeout(1500)
+  await page.screenshot({ path: test.info().outputPath('local-standby.png') })
+  const g = await lastBeacon(page)
+  console.log(`[ground:dev] ${JSON.stringify(g?.ground)}`)
 
   // Sit via the dev hook (Pointer Lock cannot be granted to automation).
   await page.evaluate(() => (window as unknown as { __ysfxSit: (id: string) => void }).__ysfxSit('ysfx-board-RW01_01'))
@@ -41,4 +51,25 @@ test('sit on a pedestal -> join -> stick and HUD', async ({ page }) => {
   const moving = await waitForBeacon(page, (b) => !!b.flight && b.flight[1] * 3.6 > 5, 20_000, 'speed > 5 km/h')
   expect(moving.flight![7]).toBeGreaterThan(0.2)
   await page.screenshot({ path: test.info().outputPath('local-pc.png') })
+})
+
+test('kiosk start boards the cockpit seat, standing up leaves', async ({ page }) => {
+  await watchBeacon(page)
+  await page.goto(`http://localhost:5173/?ysfxnet=host:${ROOM}`)
+  await waitForBeacon(page, (b) => b.role === 'host' && !!b.net && b.net.ready, 90_000, 'server ready')
+  // The kiosk read the engine's lists: many aircraft, several start positions.
+  const lobby = await waitForBeacon(page, (b) => !!b.lobby && b.lobby[0] > 10 && b.lobby[1] > 1, 20_000, 'lobby lists')
+  console.log(`[lobby:dev] aircraft ${lobby.lobby![0]}, start positions ${lobby.lobby![1]}`)
+
+  const r = await page.evaluate(() => (window as unknown as { __ysfxLobbyStart: (a: string, s: string) => string }).__ysfxLobbyStart('F-16C_FIGHTINGFALCON', 'RW01_02'))
+  expect(r).toBe('requested')
+  const seated = await waitForBeacon(page, (b) => b.seat === 'ysfx-cockpit', 30_000, 'auto-seated in the cockpit')
+  expect(seated.net!.state).toBe(NET_FLYING)
+  await waitForBeacon(page, (b) => !!b.hud && /SPD/.test(b.hud[0]), 15_000, 'hud')
+  await page.screenshot({ path: test.info().outputPath('local-kiosk-flying.png') })
+
+  // Space (held) is the host's leave key in the dev environment too.
+  await page.keyboard.down('Space'); await page.waitForTimeout(600); await page.keyboard.up('Space')
+  const left = await waitForBeacon(page, (b) => b.seat === null && !!b.net && b.net.state !== NET_FLYING, 20_000, 'left the flight')
+  expect(left.seat).toBeNull()
 })

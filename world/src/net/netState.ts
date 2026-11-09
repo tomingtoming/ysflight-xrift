@@ -84,3 +84,14 @@ export function pilotNameOf(user: { id: string; displayName: string }): string {
   const base = user.displayName.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 12) || 'pilot'
   return `${base}_${user.id.replace(/[^A-Za-z0-9]/g, '').slice(0, 6)}`
 }
+
+/** Aircraft templates offered by the lobby (identifiers for requestJoin). */
+export function lobbyAirNames(m: YsflightModule): string[] {
+  const n = m._FsVrLobbyAirCount()
+  return Array.from({ length: n }, (_, i) => m.UTF8ToString(m._FsVrLobbyAirName(i)))
+}
+/** Start positions of the loaded field (names for requestJoin). */
+export function lobbyStpNames(m: YsflightModule): string[] {
+  const n = m._FsVrLobbyStpCount()
+  return Array.from({ length: n }, (_, i) => m.UTF8ToString(m._FsVrLobbyStpName(i)))
+}
