@@ -38,8 +38,8 @@ const FIRE_FRAMES = 30
 
 type Act = 'thr-' | 'thr+' | 'Tab' | 'KeyG' | 'KeyB' | 'KeyF' | 'KeyR' | 'fire'
 const BUTTONS: Array<{ id: string; label: string; act: Act }> = [
-  { id: 'thr-', label: 'THR−', act: 'thr-' },
-  { id: 'thr+', label: 'THR＋', act: 'thr+' },
+  { id: 'thr-', label: 'THR -', act: 'thr-' },
+  { id: 'thr+', label: 'THR +', act: 'thr+' },
   { id: 'ab', label: 'A/B', act: 'Tab' },
   { id: 'gear', label: 'GEAR', act: 'KeyG' },
   { id: 'brk', label: 'BRK', act: 'KeyB' },
