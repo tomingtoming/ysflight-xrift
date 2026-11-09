@@ -21,6 +21,8 @@ export interface NetState {
   connected: number
   runState: number
   fatal: number
+  /** Join requests the server rejected (client mode; counts up). */
+  rejected: number
 }
 
 export function readNetState(m: YsflightModule, out: NetState): NetState {
@@ -34,6 +36,7 @@ export function readNetState(m: YsflightModule, out: NetState): NetState {
   out.connected = f[p + 5]
   out.runState = f[p + 6]
   out.fatal = f[p + 7]
+  out.rejected = f[p + 8]
   return out
 }
 
@@ -89,6 +92,14 @@ export function pilotNameOf(user: { id: string; displayName: string }): string {
 export function lobbyAirNames(m: YsflightModule): string[] {
   const n = m._FsVrLobbyAirCount()
   return Array.from({ length: n }, (_, i) => m.UTF8ToString(m._FsVrLobbyAirName(i)))
+}
+/** Start position coordinates (three.js world, same frame as the aircraft list). */
+export function lobbyStpPositions(m: YsflightModule): number[][] {
+  const n = m._FsVrLobbyStpCount()
+  return Array.from({ length: n }, (_, i) => {
+    const b = m._FsVrLobbyStpPos(i) >> 2
+    return [m.HEAPF32[b], m.HEAPF32[b + 1], m.HEAPF32[b + 2]]
+  })
 }
 /** Start positions of the loaded field (names for requestJoin). */
 export function lobbyStpNames(m: YsflightModule): string[] {

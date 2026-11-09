@@ -139,6 +139,27 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
     m._YsfxInterval()
   })
 
+  // ---- background ticks ---------------------------------------------------
+  // requestAnimationFrame stops in a hidden tab, and so would the host's
+  // frame loop above: a hidden host froze the whole session (clients' join
+  // requests were never approved, measured 2026-11-09).  A Worker ticker is
+  // what ysflight-web uses, but XRift's code check refuses any timer inside
+  // a Blob worker, so this is a plain interval: ~60 Hz when the tab is
+  // visible but the frame loop is stalled, 1 Hz when hidden (Chrome's
+  // timer throttling; the open WebRTC connection exempts the page from the
+  // 1/min intensive throttling).  The engine's server loop tolerates stalls
+  // up to 60 s, so 1 Hz keeps the session alive at reduced fidelity.  Draw
+  // stays off while hidden (nothing to draw to).
+  useEffect(() => {
+    if (!mod) return
+    const id = setInterval(() => {
+      if (!document.hidden || bootFrames.current < 240) return
+      ysfxStats.bgTicks++
+      mod._YsfxInterval()
+    }, 16)
+    return () => clearInterval(id)
+  }, [mod])
+
   // ---- draw hook ----------------------------------------------------------
   const hook = useMemo(() => {
     const mesh = new Mesh(
@@ -168,7 +189,7 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
 
 let eyeCounter = 0
 
-export const ysfxStats = { draws: 0, lastEye: -1, lastVp: [0, 0, 0, 0] as number[], keys: 0, lastKey: '', cam: [0, 0, 0] as number[], fwd: [0, 0, 0] as number[], tan: [0, 0, 0, 0] as number[], rt: null as null | { w: number; h: number; samples: number }, fb: false, buf: [0, 0] as number[] }
+export const ysfxStats = { draws: 0, bgTicks: 0, lastEye: -1, lastVp: [0, 0, 0, 0] as number[], keys: 0, lastKey: '', cam: [0, 0, 0] as number[], fwd: [0, 0, 0] as number[], tan: [0, 0, 0, 0] as number[], rt: null as null | { w: number; h: number; samples: number }, fb: false, buf: [0, 0] as number[] }
 if (import.meta.env.DEV) (window as unknown as { __ysfxStats?: unknown }).__ysfxStats = ysfxStats
 
 function drawEngine(m: YsflightModule, renderer: WebGLRenderer, camera: Camera, vp: Vector4) {

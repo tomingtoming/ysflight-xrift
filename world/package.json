@@ -21,7 +21,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test:local": "playwright test --config tests/playwright.config.ts --project local-pc",
-    "test:prod": "playwright test --config tests/playwright.config.ts --project prod-pc --project prod-sp --project prod-vr",
+    "test:prod": "playwright test --config tests/playwright.config.ts --project prod-pc --project prod-sp --project prod-vr --project prod-multi",
     "test:auth": "playwright codegen --channel chrome --save-storage=tests/.auth/xrift.json https://app.xrift.net/"
   },
   "peerDependencies": {

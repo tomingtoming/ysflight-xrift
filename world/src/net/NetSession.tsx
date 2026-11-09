@@ -16,6 +16,10 @@ import { StateBeacon } from './StateBeacon'
 
 export interface NetSessionState {
   hostId: string | null
+  /** Per-tab nonce of the host: the same account in two tabs shares an id,
+   *  and only the tab that claimed may run the server (measured 2026-11-09:
+   *  without it both tabs booted -server on the same room). */
+  hostNonce?: string
   room: string | null
   since: number
 }
@@ -40,6 +44,7 @@ export interface NetSessionProps {
 export function NetSession({ children }: NetSessionProps) {
   const { localUser, remoteUsers } = useUsers()
   const [net, setNet] = useInstanceState<NetSessionState>('ysfx-net', { hostId: null, room: null, since: 0 })
+  const nonce = useMemo(() => Math.random().toString(36).slice(2, 10), [])
 
   const me = localUser ?? { id: 'local', displayName: 'pilot' }
   const pilotName = useMemo(() => pilotNameOf(me), [me.id, me.displayName]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -56,11 +61,11 @@ export function NetSession({ children }: NetSessionProps) {
     const timer = setTimeout(() => {
       setNet((prev) => {
         if (prev.hostId !== null && present.has(prev.hostId)) return prev
-        return { hostId: me.id, room: makeRoom(), since: Date.now() }
+        return { hostId: me.id, hostNonce: nonce, room: makeRoom(), since: Date.now() }
       })
     }, 2500)
     return () => clearTimeout(timer)
-  }, [net.hostId, me.id, remoteUsers, setNet])
+  }, [net.hostId, me.id, nonce, remoteUsers, setNet])
 
   // Dev aid: ?ysfxnet=host:12345678 / client:12345678 forces the role and room
   // (two tabs of the dev environment do not share instance state).
@@ -71,7 +76,7 @@ export function NetSession({ children }: NetSessionProps) {
     role = forced[1] as NetRole
     room = forced[2]
   } else if (net.hostId && net.room) {
-    role = net.hostId === me.id ? 'host' : 'client'
+    role = net.hostId === me.id && (net.hostNonce === undefined || net.hostNonce === nonce) ? 'host' : 'client'
   }
   if (!role || !room) return <StateBeacon role={null} room={null} /> // election pending: nothing to boot yet
 

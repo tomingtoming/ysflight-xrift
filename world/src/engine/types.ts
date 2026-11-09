@@ -30,6 +30,7 @@ export interface YsflightModule {
   _FsVrLobbyAirName: (i: number) => number
   _FsVrLobbyStpCount: () => number
   _FsVrLobbyStpName: (i: number) => number
+  _FsVrLobbyStpPos: (i: number) => number
   // port layer (Ysfx*)
   _YsfxInterval: () => void
   _YsfxDraw: () => number

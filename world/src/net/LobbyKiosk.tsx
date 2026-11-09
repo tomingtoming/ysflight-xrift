@@ -15,8 +15,8 @@ import { useDefaultFont } from '@xrift/world-components'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useEngine } from '../engine/engineStore'
 import { publishLobby } from './StateBeacon'
-import { setKioskJoin } from './lobbyStore'
-import { NET_FLYING, lobbyAirNames, lobbyStpNames, readNetState, requestJoin, type NetState } from './netState'
+import { countKioskClick, setKioskJoin } from './lobbyStore'
+import { NET_FLYING, airBase, airCount, lobbyAirNames, lobbyStpNames, lobbyStpPositions, readNetState, requestJoin, type NetState } from './netState'
 import type { NetRole } from './NetSession'
 
 const PAGE = 10
@@ -44,7 +44,14 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
   const [pageStp, setPageStp] = useState(0)
   const [status, setStatus] = useState('エンジン起動中…')
   const [canStart, setCanStart] = useState(false)
-  const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0 })
+  // Start positions an aircraft is standing on: the server rejects a join
+  // there ("An airplane is already taking the start position"), so they are
+  // marked and the default selection moves to a free one.
+  const [occupied, setOccupied] = useState<Set<string>>(new Set())
+  const stpPos = useRef<number[][]>([])
+  const rejectedSeen = useRef(0)
+  const [rejectNote, setRejectNote] = useState('')
+  const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   const acc = useRef(0)
 
   useFrame((_s, dt) => {
@@ -58,6 +65,7 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
       if (a.length > 0) {
         setAirs(a)
         setStps(s)
+        stpPos.current = lobbyStpPositions(mod)
         publishLobby([a.length, s.length])
         const ia = a.indexOf(selAir)
         setPageAir(ia >= 0 ? Math.floor(ia / PAGE) : 0)
@@ -68,11 +76,41 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
     const ns = readNetState(mod, netRef.current)
     const who = role === 'host' ? 'サーバ' : role === 'client' ? 'クライアント' : '接続中'
     const st = !ns.ready ? '準備中' : ns.waiting ? '参加承認待ち' : ns.state === NET_FLYING ? '飛行中' : '待機'
-    setStatus(`${who}  部屋 ${room ?? '-'}  ${st}  接続 ${ns.connected}`)
+    setStatus(`${who}  部屋 ${room ?? '-'}  ${st}  接続 ${ns.connected}${rejectNote}`)
     setCanStart(ns.ready && !ns.waiting && ns.state !== NET_FLYING)
+    if (ns.rejected > rejectedSeen.current) {
+      rejectedSeen.current = ns.rejected
+      setKioskJoin(false)
+      setRejectNote('  ※サーバが参加を拒否（スタート地点が使用中か）。別の地点を選んでください')
+    }
+    // Occupancy: any alive aircraft within 30 m of a start position.
+    if (stps.length > 0 && stpPos.current.length === stps.length) {
+      const n = airCount(mod)
+      const f = mod.HEAPF32
+      const occ = new Set<string>()
+      for (let i = 0; i < n; i++) {
+        const b = airBase(mod, i)
+        if (f[b + 1] === 0) continue
+        const ax = f[b + 15], az = f[b + 17]
+        stpPos.current.forEach((p, k) => {
+          if (Math.hypot(p[0] - ax, p[2] - az) < 30) occ.add(stps[k])
+        })
+      }
+      if (occ.size !== occupied.size || [...occ].some((x) => !occupied.has(x))) {
+        setOccupied(occ)
+        if (occ.has(selStp) && ns.state !== NET_FLYING) {
+          const free = stps.find((x) => !occ.has(x))
+          if (free) {
+            setSelStp(free)
+            setPageStp(Math.floor(stps.indexOf(free) / PAGE))
+          }
+        }
+      }
+    }
   })
 
   const start = useCallback(() => {
+    countKioskClick()
     if (!mod || !canStart) return
     setKioskJoin(true)
     requestJoin(mod, selAir, selStp)
@@ -105,7 +143,7 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
         <Container key={name} height={56} paddingX={16} justifyContent="center" borderRadius={8}
           backgroundColor={name === sel ? 0x2f6fd0 : 0x222222} hover={{ backgroundColor: name === sel ? 0x3a80e8 : 0x383838 }}
           cursor="pointer" onClick={() => onSel(name)}>
-          <Text fontSize={28} color={0xffffff}>{name}</Text>
+          <Text fontSize={28} color={occupied.has(name) ? 0xff9a7a : 0xffffff} fontFamily="ja">{occupied.has(name) ? `${name}（使用中）` : name}</Text>
         </Container>
       ))}
     </Container>

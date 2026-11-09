@@ -19,15 +19,17 @@ export async function enterWorld(page: Page, worldUrl: string): Promise<string> 
   const card = page.locator('h4').filter({ hasText: '#' }).first()
   const create = page.getByRole('button', { name: /^(➕ )?(新規)?作成$/ }) // "新規作成" with a list, "作成" on the empty-state form
   const first = await Promise.any([
-    enterBtn.waitFor({ timeout: 30_000 }).then(() => 'enter'),
-    card.waitFor({ timeout: 30_000 }).then(() => 'card'),
-    create.waitFor({ timeout: 30_000 }).then(() => 'create'),
+    enterBtn.waitFor({ timeout: 90_000 }).then(() => 'enter'),
+    card.waitFor({ timeout: 90_000 }).then(() => 'card'),
+    create.waitFor({ timeout: 90_000 }).then(() => 'create'),
   ])
   if (first !== 'enter' && !/\/instance\//.test(page.url())) {
     if (!(await card.count())) {
-      await create.click() // creates it and lists it; the card is still the way in
-      await card.waitFor({ timeout: 30_000 })
+      await create.click() // creates it and lists it (the card is the way in) -- or goes straight to the instance
+      await Promise.any([card.waitFor({ timeout: 30_000 }), page.waitForURL(/\/instance\//, { timeout: 30_000 })])
     }
+  }
+  if (!/\/instance\//.test(page.url())) {
     // A host modal (class _modal_*, with a close button) sometimes sits over
     // the list -- e.g. right after the same account left another session.
     // Record it, close it, then go in.
@@ -44,6 +46,10 @@ export async function enterWorld(page: Page, worldUrl: string): Promise<string> 
     await page.waitForURL(/\/instance\//, { timeout: 30_000 })
   }
   await enterBtn.waitFor({ timeout: 60_000 })
+  // A new world version asks every visitor to acknowledge its external
+  // connections again before 入室する enables.
+  const consent = page.getByRole('checkbox').first()
+  if (await consent.isVisible().catch(() => false)) await consent.check()
   await enterBtn.click()
   return page.url()
 }
@@ -53,12 +59,13 @@ export interface Beacon {
   t: number
   role: 'host' | 'client' | null
   room: string | null
-  net: { mode: number; ready: boolean; state: number; waiting: boolean; playerAirId: number; connected: number; runState: number; fatal: number } | null
+  net: { mode: number; ready: boolean; state: number; waiting: boolean; playerAirId: number; connected: number; runState: number; fatal: number; rejected: number } | null
   flight: number[] | null
   aircraft: Array<{ id: number; alive: boolean; player: boolean; name: string; pos: number[] }>
   hud: string[] | null
   seat: string | null
   draws: number
+  bg: number
   cam: { pos: number[]; quat: number[] } | null
   seats: Array<{ id: string; pos: number[] }>
   gfx: { vp: number[]; eye: number; rt: null | { w: number; h: number; samples: number }; fb: boolean; buf: number[] }

@@ -8,6 +8,7 @@
  * channel passes XRift's code-security rules and ships in production.
  */
 import { useFrame, useThree } from '@react-three/fiber'
+import { kioskClicks, kioskJoinPending } from './lobbyStore'
 import { useRef } from 'react'
 import { Quaternion, Vector3 } from 'three'
 import { useEngine } from '../engine/engineStore'
@@ -28,6 +29,7 @@ export interface YsfxBeacon {
   seat: string | null
   /** Engine draw calls so far (per-eye in XR) -- tells whether the engine renders at all. */
   draws: number
+  bg: number
   /** Local camera world pose (the XR camera while presenting): lets a VR test map world -> tracking space. */
   cam: { pos: number[]; quat: number[] } | null
   /** Boarding pedestals (world positions of the seat groups when not riding an aircraft). */
@@ -75,7 +77,7 @@ export function StateBeacon({ role, room }: { role: NetRole | null; room: string
   const acc = useRef(0)
   const v = useRef(new Vector3())
   const q = useRef(new Quaternion())
-  const net = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0 })
+  const net = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   useFrame((_s, dt) => {
     acc.current += dt
     if (acc.current < 0.1) return // 10 Hz: fast enough for closed-loop aiming in tests
@@ -100,7 +102,7 @@ export function StateBeacon({ role, room }: { role: NetRole | null; room: string
       if (mod.HEAPF32[gp + 3] !== 0) field = mod.HEAPF32[gp + 2]
     }
     const detail: YsfxBeacon = {
-      t: Date.now(), role, room, net: null, flight: null, aircraft: [], hud: hudLines, seat: localSeat, draws: ysfxStats.draws, ctl: null, lobby: lobbyCounts,
+      t: Date.now(), role, room, net: null, flight: null, aircraft: [], hud: hudLines, seat: localSeat, draws: ysfxStats.draws, bg: ysfxStats.bgTicks, ctl: null, lobby: lobbyCounts ? [...lobbyCounts, kioskClicks(), kioskJoinPending() ? 1 : 0] : null,
       ground: { cam: v.current.y, feet, field },
       cam: { pos: v.current.toArray(), quat: q.current.toArray() },
       seats: Array.from(seatPos, ([id, pos]) => ({ id, pos })),

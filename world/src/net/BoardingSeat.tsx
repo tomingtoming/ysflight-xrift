@@ -71,7 +71,7 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
   const mod = useEngine()
   const { localUser, remoteUsers } = useUsers()
   const group = useRef<Group>(null)
-  const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0 })
+  const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   const occupantRef = useRef<SeatOccupant | null>(null)
   const flyingRef = useRef(false) // local user's flight is active (seat rides the aircraft)
   const joinAtRef = useRef(0) // engine time (s) when a join may be requested
