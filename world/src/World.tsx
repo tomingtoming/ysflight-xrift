@@ -1,6 +1,5 @@
 import { SpawnPoint } from '@xrift/world-components'
 import { CuboidCollider, RigidBody } from '@react-three/rapier'
-import { BoardingSeat } from './net/BoardingSeat'
 import { CockpitSeat } from './net/CockpitSeat'
 import { LobbyKiosk } from './net/LobbyKiosk'
 import { NetSession } from './net/NetSession'
@@ -12,8 +11,8 @@ export interface WorldProps {
 }
 
 // Atsugi RW01_01 in the engine is (-117, 0.5, -663) LH -> three (-117, 0.5, 663).
-// Visitors spawn on the runway short of it, facing +z (yaw 180); the boarding
-// pedestals stand in a row beside the spawn.
+// Visitors spawn on the runway short of it, facing +z (yaw 180); the lobby
+// kiosk stands beside the spawn and the cockpit seat is parked next to it.
 const APRON: [number, number, number] = [-117, 0.5, 640]
 
 const GROUND_TILE = 400 // m; small enough that the host's character controller stands on top (see below)
@@ -23,31 +22,12 @@ for (let x = -GROUND_EXTENT + GROUND_TILE / 2; x < GROUND_EXTENT; x += GROUND_TI
   for (let z = -GROUND_EXTENT + GROUND_TILE / 2; z < GROUND_EXTENT; z += GROUND_TILE) GROUND_TILES.push([x, z])
 }
 
-const BOARDING: Array<{ air: string; stp: string; label: string; color: string }> = [
-  { air: 'F-16C_FIGHTINGFALCON', stp: 'RW01_01', label: 'F-16C', color: '#3a7bd5' },
-  { air: 'F-16C_FIGHTINGFALCON', stp: 'RW01_02', label: 'F-16C', color: '#3a7bd5' },
-  { air: 'F-16C_FIGHTINGFALCON', stp: 'RW01_03', label: 'F-16C', color: '#3a7bd5' },
-  { air: 'F-16C_FIGHTINGFALCON', stp: 'RW01_04', label: 'F-16C', color: '#3a7bd5' },
-]
-
 export const World: React.FC<WorldProps> = ({ position = [0, 0, 0] }) => {
   return (
     <group position={position}>
       <NetSession>
         {(role, _pilot, room) => (
           <>
-            {BOARDING.map((b, i) => (
-              <BoardingSeat
-                key={b.stp}
-                id={`ysfx-board-${b.stp}`}
-                position={[APRON[0] - 6 + i * 4, 0.5, APRON[2] + 6]}
-                yaw={Math.PI}
-                air={b.air}
-                stp={b.stp}
-                label={`${b.label} ${b.stp}`}
-                color={b.color}
-              />
-            ))}
             {/* The standby screen in the world: pick an aircraft and a start
                 position, press 飛行開始, and the cockpit seat boards you. */}
             <LobbyKiosk position={[APRON[0] + 8, 1.6, APRON[2] + 5]} yaw={Math.PI} role={role} room={room} />

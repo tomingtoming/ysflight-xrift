@@ -100,8 +100,12 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
     const isTyping = (t: EventTarget | null) =>
       t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
     // Space is the host's "leave seat" key; never hand it to the engine
-    // (default FIREWEAPON) or every exit fires a burst.
-    const reserved = (e: KeyboardEvent) => e.code === 'Space'
+    // (default FIREWEAPON) or every exit fires a burst.  Escape, Enter and
+    // Backspace open the engine's 2D dialogs (ESC x2 ends the flight, Enter
+    // the radio menu, Backspace the autopilot menu) -- invisible on the
+    // external-view host, and an open dialog swallows every other key.
+    const RESERVED = new Set(['Space', 'Escape', 'Enter', 'NumpadEnter', 'Backspace'])
+    const reserved = (e: KeyboardEvent) => RESERVED.has(e.code)
     const down = (e: KeyboardEvent) => {
       if (isTyping(e.target) || !isPiloting() || reserved(e)) return
       const fs = key(e.code, 1) as number

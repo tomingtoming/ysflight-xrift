@@ -3,10 +3,11 @@
  * (npm run test:auth).  Drives the real desktop controls: pointer lock by a
  * click, mouse look (synthesised mouse moves carry movementX/Y under pointer
  * lock, but never jump the virtual pointer back -- that undoes the look),
- * WASD walk, click on the crosshair target to sit, W/S/A/D stick, Q throttle,
- * Space to leave.
+ * WASD walk, the kiosk's 飛行開始 by crosshair click, W/S stick, the mouse
+ * stick (left button held), Q/A throttle and the other YSFLIGHT keys, Space
+ * held to leave.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { HAS_AUTH, WORLD_URL } from './playwright.config'
 import { enterWorld, lastBeacon, NET_FLYING, waitForBeacon, walkAndAim, watchBeacon } from './helpers'
 
@@ -14,38 +15,49 @@ test.skip(!HAS_AUTH, 'no tests/.auth/xrift.json -- run `npm run test:auth` once'
 
 const DEG_PER_PX = 0.115 // host mouse sensitivity, measured 2026-11-09
 
-test('desktop: walk, sit by crosshair, stick, throttle, leave', async ({ page }) => {
+// LobbyKiosk geometry (World.tsx / LobbyKiosk.tsx): panel centre, yaw PI,
+// 1700x1000 px at 1 mm/px, 28 px padding, 飛行開始 button 320x80 at the
+// bottom-right.  Local +x maps to world -x under the yaw.
+const KIOSK: [number, number, number] = [-117 + 8, 1.6, 640 + 5]
+const START_BTN: [number, number, number] = [KIOSK[0] - (1700 / 2 - 28 - 160) / 1000, KIOSK[1] - (1000 / 2 - 28 - 40) / 1000, KIOSK[2]]
+
+/** Enter the world, lock the pointer, walk to the kiosk, click 飛行開始, wait for the cockpit seat and the HUD. */
+async function kioskStart(page: Page) {
   await watchBeacon(page)
   await enterWorld(page, WORLD_URL)
   const b = await waitForBeacon(page, (x) => x.role !== null && !!x.net && x.net.ready, 150_000, 'session ready')
   expect(['host', 'client']).toContain(b.role)
-  await waitForBeacon(page, (x) => !!x.cam && x.seats.length > 0, 20_000, 'camera + seats')
-  const g0 = await waitForBeacon(page, (x) => x.ground?.field != null, 20_000, 'ground probe (needs world >= 15)')
+  const lobby = await waitForBeacon(page, (x) => !!x.lobby && x.lobby[0] > 10, 30_000, 'kiosk lists')
+  console.log(`[lobby:prod] aircraft ${lobby.lobby![0]}, start positions ${lobby.lobby![1]}`)
+  const g0 = await waitForBeacon(page, (x) => x.ground?.field != null && !!x.cam, 20_000, 'ground probe + camera')
   console.log(`[ground:prod standing] ${JSON.stringify(g0.ground)}`)
 
   await page.mouse.click(640, 360)
   await page.waitForTimeout(800)
   expect(await page.evaluate(() => !!document.pointerLockElement)).toBe(true)
-
-  let mx = 640, my = 360
+  const cur = { mx: 640, my: 360 }
   const look = async (dyaw: number, dpitch: number) => {
     const dx = -dyaw / DEG_PER_PX, dy = -dpitch / DEG_PER_PX
-    mx += dx; my += dy
-    await page.mouse.move(mx, my, { steps: Math.max(2, Math.ceil(Math.hypot(dx, dy) / 20)) })
+    cur.mx += dx; cur.my += dy
+    await page.mouse.move(cur.mx, cur.my, { steps: Math.max(2, Math.ceil(Math.hypot(dx, dy) / 20)) })
     await page.waitForTimeout(350)
   }
   const walk = async (ms: number) => { await page.keyboard.down('w'); await page.waitForTimeout(ms); await page.keyboard.up('w') }
-  const aim = await walkAndAim(page, look, walk)
-  test.info().annotations.push({ type: 'aim', description: `${aim.id} dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}` })
-  await page.screenshot({ path: test.info().outputPath('pc-aimed.png') })
+  const aim = await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: START_BTN })
+  console.log(`[kiosk aim] dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
+  await page.screenshot({ path: test.info().outputPath('pc-kiosk.png') })
 
-  await page.mouse.click(mx, my)
-  console.log(`[ground:prod at pedestal] ${JSON.stringify((await lastBeacon(page))?.ground)}`)
-  const seated = await waitForBeacon(page, (x) => x.seat !== null, 8_000, 'seated after click')
-  expect(seated.seat).toBe(aim.id)
-  const flying = await waitForBeacon(page, (x) => !!x.net && x.net.state === NET_FLYING, 40_000, 'flying')
+  await page.mouse.click(cur.mx, cur.my)
+  const seated = await waitForBeacon(page, (x) => x.seat === 'ysfx-cockpit', 30_000, 'auto-seated after 飛行開始')
+  expect(seated.net!.state).toBe(NET_FLYING)
+  const flying = await waitForBeacon(page, (x) => !!x.net && x.net.state === NET_FLYING && x.aircraft.some((a) => a.player), 40_000, 'flying')
   expect(flying.aircraft.some((a) => a.player)).toBe(true)
   await waitForBeacon(page, (x) => !!x.hud && /SPD/.test(x.hud[0]), 10_000, 'HUD')
+  return cur
+}
+
+test('desktop: kiosk 飛行開始, W/S and mouse stick, Q/A throttle, camera at speed, Space leaves', async ({ page }) => {
+  const cur = await kioskStart(page)
 
   await page.keyboard.down('w')
   const stick = await waitForBeacon(page, (x) => !!x.ctl && x.ctl[0] === 1 && x.ctl[2] < -0.5, 10_000, 'stick forward')
@@ -56,27 +68,28 @@ test('desktop: walk, sit by crosshair, stick, throttle, leave', async ({ page })
   // Mouse stick (pointer locked): hold the left button, travel since the grab
   // is the deflection (250 px = full); release and it springs back.
   await page.mouse.down()
-  await page.mouse.move(mx + 150, my, { steps: 10 })
+  await page.mouse.move(cur.mx + 150, cur.my, { steps: 10 })
   const ms = await waitForBeacon(page, (x) => x.mouse.grabbed && !!x.ctl && x.ctl[0] === 1 && x.ctl[1] > 0.5, 5_000, 'mouse stick: roll right')
-  await page.mouse.move(mx + 150, my - 150, { steps: 10 })
+  await page.mouse.move(cur.mx + 150, cur.my - 150, { steps: 10 })
   const mf = await waitForBeacon(page, (x) => !!x.ctl && x.ctl[2] < -0.5, 5_000, 'mouse stick: forward = nose down')
   console.log(`[pc mouse stick] right -> ail ${ms.ctl![1].toFixed(2)}; forward -> elv ${mf.ctl![2].toFixed(2)}`)
   await page.screenshot({ path: test.info().outputPath('pc-mouse-stick.png') })
   await page.mouse.up()
   await waitForBeacon(page, (x) => !x.mouse.grabbed && !!x.ctl && Math.abs(x.ctl[1]) < 0.05 && Math.abs(x.ctl[2]) < 0.05, 5_000, 'mouse stick released')
-  mx += 150; my -= 150
 
   for (let i = 0; i < 25; i++) { await page.keyboard.press('q'); await page.waitForTimeout(40) }
   const thr = await waitForBeacon(page, (x) => !!x.flight && x.flight[7] > 0.9 && x.flight[1] > 5, 15_000, 'throttle up, rolling')
   expect(thr.flight![7]).toBeGreaterThan(0.9)
   // A is YSFLIGHT's throttle-down key; the host also folds it into the seat's
   // roll axis, which the seat takes back out: throttle drops, no roll.
+  await page.waitForTimeout(600) // let the Q presses finish landing
+  const before = (await lastBeacon(page))!.flight![7]
   await page.keyboard.down('a')
   await page.waitForTimeout(700)
   const aHeld = (await lastBeacon(page))!
   await page.keyboard.up('a')
-  console.log(`[pc A held] throttle ${thr.flight![7].toFixed(2)} -> ${aHeld.flight![7].toFixed(2)}, aileron ${aHeld.ctl![1].toFixed(2)}`)
-  expect(aHeld.flight![7]).toBeLessThan(thr.flight![7] - 0.03)
+  console.log(`[pc A held] throttle ${before.toFixed(2)} -> ${aHeld.flight![7].toFixed(2)}, aileron ${aHeld.ctl![1].toFixed(2)}`)
+  expect(aHeld.flight![7]).toBeLessThan(before - 0.03)
   expect(Math.abs(aHeld.ctl![1])).toBeLessThan(0.05)
   // At speed the seated camera must stay on the cockpit: lag.eFrames is the
   // camera's residual lag along the velocity in frames (seatLead.ts).
@@ -100,42 +113,36 @@ test('desktop: walk, sit by crosshair, stick, throttle, leave', async ({ page })
   await waitForBeacon(page, (x) => !!x.net && x.net.state !== NET_FLYING, 20_000, 'engine left the flight')
 })
 
-// LobbyKiosk geometry (World.tsx / LobbyKiosk.tsx): panel centre, yaw PI,
-// 1700x1000 px at 1 mm/px, 28 px padding, 飛行開始 button 320x80 at the
-// bottom-right.  Local +x maps to world -x under the yaw.
-const KIOSK: [number, number, number] = [-117 + 8, 1.6, 640 + 5]
-const START_BTN: [number, number, number] = [KIOSK[0] - (1700 / 2 - 28 - 160) / 1000, KIOSK[1] - (1000 / 2 - 28 - 40) / 1000, KIOSK[2]]
-
-test('desktop: kiosk 飛行開始 boards the cockpit seat', async ({ page }) => {
-  await watchBeacon(page)
-  await enterWorld(page, WORLD_URL)
-  await waitForBeacon(page, (x) => x.role !== null && !!x.net && x.net.ready, 150_000, 'session ready')
-  const lobby = await waitForBeacon(page, (x) => !!x.lobby && x.lobby[0] > 10, 30_000, 'kiosk lists')
-  console.log(`[lobby:prod] aircraft ${lobby.lobby![0]}, start positions ${lobby.lobby![1]}`)
-
-  await page.mouse.click(640, 360)
-  await page.waitForTimeout(800)
-  let mx = 640, my = 360
-  const look = async (dyaw: number, dpitch: number) => {
-    const dx = -dyaw / DEG_PER_PX, dy = -dpitch / DEG_PER_PX
-    mx += dx; my += dy
-    await page.mouse.move(mx, my, { steps: Math.max(2, Math.ceil(Math.hypot(dx, dy) / 20)) })
-    await page.waitForTimeout(350)
-  }
-  const walk = async (ms: number) => { await page.keyboard.down('w'); await page.waitForTimeout(ms); await page.keyboard.up('w') }
-  const aim = await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: START_BTN })
-  console.log(`[kiosk aim] dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
-  await page.screenshot({ path: test.info().outputPath('pc-kiosk.png') })
-
-  await page.mouse.click(mx, my)
-  const seated = await waitForBeacon(page, (x) => x.seat === 'ysfx-cockpit', 30_000, 'auto-seated after 飛行開始')
-  expect(seated.net!.state).toBe(NET_FLYING)
-  await waitForBeacon(page, (x) => !!x.hud && /SPD/.test(x.hud[0]), 10_000, 'HUD')
+test('desktop: kiosk seat puts the eye on the cockpit point; B/F/Q/A keys; leave and settle on the apron', async ({ page }) => {
+  await kioskStart(page)
   // The seat measures the camera 1.0-1.5 s after sitting and moves its origin
   // so the eye lands on the engine's cockpit point (seatEye.ts).
   const eye = await waitForBeacon(page, (x) => !!x.eye && x.eye.n > 0 && Math.abs(x.eye.res[1]) < 0.05 && Math.abs(x.eye.res[2]) < 0.05, 10_000, 'eye on the cockpit point')
   console.log(`[kiosk eye] hip-to-eye ${eye.eye!.dy.toFixed(3)} m, ahead ${(-eye.eye!.dz).toFixed(3)} m, residual ${eye.eye!.res.map((n) => n.toFixed(3)).join(',')}`)
   await page.screenshot({ path: test.info().outputPath('pc-kiosk-flying.png') })
+  // YSFLIGHT's keys through the kiosk seat: B brake, F flap down, Q throttle, A throttle back.
+  const k0 = (await lastBeacon(page))!.flight!
+  await page.keyboard.press('b')
+  const kb = await waitForBeacon(page, (x) => !!x.flight && Math.abs(x.flight[10] - k0[10]) > 0.5, 5_000, 'B toggles the brake')
+  await page.keyboard.press('f')
+  const kf = await waitForBeacon(page, (x) => !!x.flight && x.flight[11] > k0[11] + 0.05, 8_000, 'F lowers the flaps')
+  for (let i = 0; i < 10; i++) { await page.keyboard.press('q'); await page.waitForTimeout(40) }
+  const kq = await waitForBeacon(page, (x) => !!x.flight && x.flight[7] > 0.4, 5_000, 'Q raises the throttle')
+  console.log(`[kiosk keys] brake ${k0[10]} -> ${kb.flight![10]}, flap ${k0[11].toFixed(2)} -> ${kf.flight![11].toFixed(2)}, throttle ${k0[7].toFixed(2)} -> ${kq.flight![7].toFixed(2)}; engine keys ${kq.keys.n} last ${kq.keys.last}`)
+  await page.keyboard.press('b')
+  for (let i = 0; i < 12; i++) { await page.keyboard.press('a'); await page.waitForTimeout(40) }
+  await waitForBeacon(page, (x) => !!x.flight && x.flight[7] < 0.05, 5_000, 'A brings the throttle back')
+  // Enter / Backspace / Escape never reach the engine (they would open its
+  // invisible 2D dialogs; ESC twice would end the flight).
+  const n0 = (await lastBeacon(page))!.keys.n
+  await page.keyboard.press('Enter'); await page.keyboard.press('Backspace')
+  await page.waitForTimeout(400)
+  const n1 = (await lastBeacon(page))!.keys.n
+  expect(n1).toBe(n0)
+  await page.keyboard.press('g')
+  await waitForBeacon(page, (x) => x.keys.n > n0 && /KeyG/.test(x.keys.last), 5_000, 'G still reaches the engine after Enter/Backspace')
+  await page.keyboard.press('g')
+
   await page.keyboard.down('Space'); await page.waitForTimeout(600); await page.keyboard.up('Space')
   const left = await waitForBeacon(page, (x) => x.seat === null, 8_000, 'left the seat')
   expect(left.seat).toBeNull()

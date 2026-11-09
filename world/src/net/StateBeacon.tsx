@@ -37,8 +37,8 @@ export interface YsfxBeacon {
   bg: number
   /** Local camera world pose (the XR camera while presenting): lets a VR test map world -> tracking space. */
   cam: { pos: number[]; quat: number[] } | null
-  /** Boarding pedestals (world positions of the seat groups when not riding an aircraft). */
-  seats: Array<{ id: string; pos: number[] }>
+  /** Keys the engine was handed (count, last `code->fskey`). */
+  keys: { n: number; last: string }
   /** Where the last engine draw went: viewport, eye, host render target, framebuffer bound, drawing buffer. */
   gfx: { vp: number[]; eye: number; rt: null | { w: number; h: number; samples: number }; fb: boolean; buf: number[] }
   /** Engine VR control block [0..8]: stick grabbed, aileron, elevator, rudder, throttle grabbed, throttle, throttle ever, confirm, stick ever. */
@@ -62,13 +62,6 @@ export interface YsfxBeacon {
   gates: { coarse: boolean; xr: boolean }
 }
 
-const seatPos = new Map<string, number[]>()
-/** BoardingSeat registers its pedestal's world position. */
-export function registerSeat(id: string, pos: number[] | null): void {
-  if (pos) seatPos.set(id, pos)
-  else seatPos.delete(id)
-}
-
 let lobbyCounts: number[] | null = null
 /** LobbyKiosk publishes [aircraft, start positions] once loaded. */
 export function publishLobby(counts: number[] | null): void {
@@ -82,7 +75,7 @@ export function publishConsole(list: Array<{ id: string; pos: number[] }> | null
 }
 
 let localSeat: string | null = null
-/** BoardingSeat publishes the local user's seat here. */
+/** The seat publishes the local user's seat here. */
 export function publishSeat(id: string | null): void {
   localSeat = id
 }
@@ -135,7 +128,7 @@ export function StateBeacon({ role, room }: { role: NetRole | null; room: string
       mouse: { ...mouseStick },
       gates: { coarse: isCoarsePointer(), xr: !!gl.xr?.isPresenting },
       cam: { pos: v.current.toArray(), quat: q.current.toArray() },
-      seats: Array.from(seatPos, ([id, pos]) => ({ id, pos })),
+      keys: { n: ysfxStats.keys, last: ysfxStats.lastKey },
       gfx: { vp: ysfxStats.lastVp, eye: ysfxStats.lastEye, rt: ysfxStats.rt, fb: ysfxStats.fb, buf: ysfxStats.buf },
     }
     if (mod) {

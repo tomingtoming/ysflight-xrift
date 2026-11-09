@@ -1,5 +1,5 @@
 /**
- * local-pc: the whole seat flow in the dev environment, PC input.
+ * local-pc: the whole kiosk -> cockpit flow in the dev environment, PC input.
  * Forces the host role (?ysfxnet=host:ROOM) so no election is needed.
  */
 import { expect, test } from '@playwright/test'
@@ -7,7 +7,7 @@ import { NET_FLYING, lastBeacon, waitForBeacon, watchBeacon } from './helpers'
 
 const ROOM = '12345678'
 
-test('sit on a pedestal -> join -> stick and HUD', async ({ page }) => {
+test('kiosk start -> join -> keyboard stick, mouse stick, throttle and HUD', async ({ page }) => {
   await watchBeacon(page)
   await page.goto(`http://localhost:5173/?ysfxnet=host:${ROOM}`)
 
@@ -25,9 +25,10 @@ test('sit on a pedestal -> join -> stick and HUD', async ({ page }) => {
   const g = await lastBeacon(page)
   console.log(`[ground:dev] ${JSON.stringify(g?.ground)}`)
 
-  // Sit via the dev hook (Pointer Lock cannot be granted to automation).
-  await page.evaluate(() => (window as unknown as { __ysfxSit: (id: string) => void }).__ysfxSit('ysfx-board-RW01_01'))
-  const flying = await waitForBeacon(page, (b) => !!b.net && b.net.state === NET_FLYING && b.net.playerAirId >= 0, 30_000, 'flying')
+  // Start from the kiosk via the dev hook (Pointer Lock cannot be granted to
+  // automation): the cockpit seat boards the player when the aircraft appears.
+  await page.evaluate(() => (window as unknown as { __ysfxLobbyStart: (a: string, s: string) => string }).__ysfxLobbyStart('F-16C_FIGHTINGFALCON', 'RW01_01'))
+  const flying = await waitForBeacon(page, (b) => b.seat === 'ysfx-cockpit' && !!b.net && b.net.state === NET_FLYING && b.net.playerAirId >= 0, 30_000, 'seated and flying')
   expect(flying.aircraft.some((a) => a.player && a.alive)).toBe(true)
 
   // HUD lines appear.
@@ -66,12 +67,14 @@ test('sit on a pedestal -> join -> stick and HUD', async ({ page }) => {
   expect(moving.flight![7]).toBeGreaterThan(0.2)
   // A is YSFLIGHT's throttle-down key; the host also folds it into the seat's
   // roll axis, which the seat takes back out: throttle drops, no roll.
+  await page.waitForTimeout(600) // let the Q presses finish landing
+  const before = (await lastBeacon(page))!.flight![7]
   await page.keyboard.down('a')
   await page.waitForTimeout(700)
   const aHeld = (await lastBeacon(page))!
   await page.keyboard.up('a')
-  console.log(`[A held] throttle ${moving.flight![7].toFixed(2)} -> ${aHeld.flight![7].toFixed(2)}, aileron ${aHeld.ctl![1].toFixed(2)}`)
-  expect(aHeld.flight![7]).toBeLessThan(moving.flight![7] - 0.03)
+  console.log(`[A held] throttle ${before.toFixed(2)} -> ${aHeld.flight![7].toFixed(2)}, aileron ${aHeld.ctl![1].toFixed(2)}`)
+  expect(aHeld.flight![7]).toBeLessThan(before - 0.03)
   expect(Math.abs(aHeld.ctl![1])).toBeLessThan(0.05)
   await page.screenshot({ path: test.info().outputPath('local-pc.png') })
 })

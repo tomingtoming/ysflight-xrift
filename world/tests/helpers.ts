@@ -67,7 +67,7 @@ export interface Beacon {
   draws: number
   bg: number
   cam: { pos: number[]; quat: number[] } | null
-  seats: Array<{ id: string; pos: number[] }>
+  keys: { n: number; last: string }
   gfx: { vp: number[]; eye: number; rt: null | { w: number; h: number; samples: number }; fb: boolean; buf: number[] }
   ctl: number[] | null
   lobby: number[] | null
@@ -124,17 +124,13 @@ function camForward(q: number[]): [number, number, number] {
 
 export interface AimError { id: string; dyaw: number; dpitch: number; dist: number }
 
-/** Yaw/pitch (deg) from the camera forward to the nearest pedestal's hit-box centre, and its distance. */
-export async function aimError(page: Page, target?: { id: string; p: number[] }): Promise<AimError> {
+/** Yaw/pitch (deg) from the camera forward to the target point, and its distance. */
+export async function aimError(page: Page, target: { id: string; p: number[] }): Promise<AimError> {
   const b = await lastBeacon(page)
-  if (!b?.cam || (!target && b.seats.length === 0)) throw new Error('beacon has no camera/seats yet')
+  if (!b?.cam) throw new Error('beacon has no camera yet')
   const cam = b.cam.pos
   const fwd = camForward(b.cam.quat)
-  const seats = target
-    ? [target]
-    : b.seats
-        .map((s) => ({ id: s.id, p: [s.pos[0], s.pos[1] + 0.5, s.pos[2]] }))
-        .sort((a, c) => Math.hypot(a.p[0] - cam[0], a.p[2] - cam[2]) - Math.hypot(c.p[0] - cam[0], c.p[2] - cam[2]))
+  const seats = [target]
   const t = seats[0].p
   const d = [t[0] - cam[0], t[1] - cam[1], t[2] - cam[2]]
   const L = Math.hypot(d[0], d[1], d[2])
@@ -156,8 +152,8 @@ export async function walkAndAim(
   page: Page,
   look: (dyawDeg: number, dpitchDeg: number) => Promise<void>,
   walk: (ms: number) => Promise<void>,
-  within = 2.6,
-  target?: { id: string; p: number[] },
+  within: number,
+  target: { id: string; p: number[] },
 ): Promise<AimError> {
   let e = await aimError(page, target)
   for (let it = 0; it < 40 && e.dist >= within; it++) {
