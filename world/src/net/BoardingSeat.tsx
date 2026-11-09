@@ -94,6 +94,7 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
   const eyeRef = useRef(eye)
   const calib = useRef(new EyeCalibrator())
   const [hudOn, setHudOn] = useState(false)
+  const [riding, setRiding] = useState(false) // the seat rides an aircraft (anyone's): hide the pedestal
   const stickRef = useRef({ ail: 0, elv: 0, fed: false })
 
   useEffect(() => {
@@ -230,6 +231,7 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
         if (u) airIndex = findAircraftByPilot(mod, pilotNameOf(u))
       }
     }
+    if (riding !== airIndex >= 0) setRiding(airIndex >= 0)
     if (mod && airIndex >= 0) {
       const b = airBase(mod, airIndex)
       const f = mod.HEAPF32
@@ -277,15 +279,19 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
         onLeave={onLeave}
         onControlInput={onControlInput}
       >
-        {/* pedestal: the thing you aim at */}
-        <mesh position={[0, -0.25, 0]}>
-          <cylinderGeometry args={[0.55, 0.65, 0.4, 24]} />
-          <meshStandardMaterial color={color} />
-        </mesh>
-        <mesh position={[0, 0, 0]}>
-          <boxGeometry args={[0.5, 0.08, 0.5]} />
-          <meshStandardMaterial color="orange" transparent opacity={0.8} />
-        </mesh>
+        {/* pedestal: the thing you aim at (left on the apron while the seat rides an aircraft) */}
+        {riding ? null : (
+          <>
+            <mesh position={[0, -0.25, 0]}>
+              <cylinderGeometry args={[0.55, 0.65, 0.4, 24]} />
+              <meshStandardMaterial color={color} />
+            </mesh>
+            <mesh position={[0, 0, 0]}>
+              <boxGeometry args={[0.5, 0.08, 0.5]} />
+              <meshStandardMaterial color="orange" transparent opacity={0.8} />
+            </mesh>
+          </>
+        )}
         {/* cockpit-sized hit volume so the crosshair finds the seat in flight */}
         <mesh position={[0, 0.5, 0]}>
           <boxGeometry args={[1.0, 1.3, 1.6]} />

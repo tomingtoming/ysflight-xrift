@@ -85,8 +85,8 @@ function applyDeadzone(angle: number, dz: number, max: number): number {
 /** Shared read-only status for the beacon / tests. */
 export const saccStatus = {
   active: false,
-  right: { grabbed: false, sel: -1, visible: false },
-  left: { grabbed: false, sel: -1, visible: false },
+  right: { grabbed: false, sel: -1, visible: false, pos: [0, 0, 0] as number[] },
+  left: { grabbed: false, sel: -1, visible: false, pos: [0, 0, 0] as number[] },
   /** Keys dispatched so far and the last one. */
   keys: 0,
   lastKey: '' as string,

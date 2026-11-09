@@ -12,7 +12,7 @@ import { createPortal, useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import { CanvasTexture, Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { useEngine } from '../engine/engineStore'
-import { LEFT_DIAL, RIGHT_DIAL, SaccControls, type DialEntry } from './saccControls'
+import { LEFT_DIAL, RIGHT_DIAL, SaccControls, saccStatus, type DialEntry } from './saccControls'
 import { makeXrSample, sampleXr, type Hand } from './xrHands'
 
 const DIAL_PX = 256
@@ -23,6 +23,11 @@ function drawDial(ctx: CanvasRenderingContext2D, table: DialEntry[], sel: number
   const n = table.length
   const cx = DIAL_PX / 2, cy = DIAL_PX / 2
   ctx.clearRect(0, 0, DIAL_PX, DIAL_PX)
+  // dark backdrop: the placard is read against sky and cloud as often as cockpit
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'
+  ctx.beginPath()
+  ctx.arc(cx, cy, DIAL_PX / 2 - 2, 0, Math.PI * 2)
+  ctx.fill()
   ctx.lineCap = 'round'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
@@ -128,6 +133,7 @@ export function SaccHands() {
       g.matrix.compose(pos.current, q.current, one.current)
       g.matrixWorldNeedsUpdate = true
       g.visible = true
+      saccStatus[hand].pos = pos.current.toArray()
     }
   })
 

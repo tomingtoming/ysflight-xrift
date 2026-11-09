@@ -74,7 +74,7 @@ export interface Beacon {
   kiosk: { hovers: number; lastPointer: string; ev: Record<string, number> }
   ground: { cam: number; feet: number[] | null; field: number | null }
   /** SaccFlight-style hand controls (src/vr/saccControls.ts). */
-  vr: { active: boolean; right: { grabbed: boolean; sel: number; visible: boolean }; left: { grabbed: boolean; sel: number; visible: boolean }; keys: number; lastKey: string; ail: number; elv: number; rud: number; thr: number; ab: boolean }
+  vr: { active: boolean; right: { grabbed: boolean; sel: number; visible: boolean; pos: number[] }; left: { grabbed: boolean; sel: number; visible: boolean; pos: number[] }; keys: number; lastKey: string; ail: number; elv: number; rud: number; thr: number; ab: boolean }
   /** Seat eye calibration (src/net/seatEye.ts): hip-to-eye measured, residual after applying. */
   eye: { dx: number; dy: number; dz: number; n: number; res: number[] } | null
   /** Seated camera lag (frames at 60 Hz, measured before the lead) and the lead applied (ms). */

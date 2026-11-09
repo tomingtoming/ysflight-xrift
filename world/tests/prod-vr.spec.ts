@@ -130,11 +130,17 @@ test('enter VR, sit by controller ray, fly by SaccFlight-style hands', async ({ 
   // Function dial: pull the right thumbstick to 240 deg (sector 4 = Brake),
   // the placard shows, the trigger fires the picked function: the engine's
   // brake/spoiler flag (flight[10]) toggles.
+  // Bring the right hand to where a pilot holds a stick (0.45 m ahead of
+  // the head, 0.25 m below) so the placard above it is in view.
+  const headP = new Vector3(...(head.position as [number, number, number]))
+  const stickHand = headP.clone().addScaledVector(fwd, 0.45).add(new Vector3(0.1, -0.25, 0))
+  await xr.setGripPose('right', { position: stickHand.toArray() as [number, number, number], quaternion: q(gripQ) })
+  await xr.waitForFrames(4)
   const brake0 = (await lastBeacon(page))!.flight![10]
   // xr-standard thumbstick: +y is toward the user, so 240 deg clockwise from up is x=-0.87, y=+0.5.
   await xr.setAxes('right', Math.sin((240 * Math.PI) / 180), -Math.cos((240 * Math.PI) / 180))
   const pick = await waitForBeacon(page, (x) => x.vr.right.sel === 4 && x.vr.right.visible, 5_000, 'dial sector Brake picked')
-  console.log(`[vr dial] right sel ${pick.vr.right.sel} visible ${pick.vr.right.visible}`)
+  console.log(`[vr dial] right sel ${pick.vr.right.sel} visible ${pick.vr.right.visible} placard world ${pick.vr.right.pos.map((n) => n.toFixed(2)).join(',')} cam ${pick.cam!.pos.map((n) => n.toFixed(2)).join(',')}`)
   await xr.attachCapture(testInfo, 'vr-dial')
   await xr.pressButton('right', 'trigger', { holdMs: 150, frames: 6 })
   const fired = await waitForBeacon(page, (x) => x.vr.lastKey === 'KeyB', 5_000, 'Brake key dispatched')
