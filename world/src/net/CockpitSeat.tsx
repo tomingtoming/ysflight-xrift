@@ -21,6 +21,7 @@ import { kioskJoinPending, setKioskJoin } from './lobbyStore'
 import { DEFAULT_EYE, EyeCalibrator, type EyeOffset } from './seatEye'
 import { SeatLead, clearSeatLag } from './seatLead'
 import { SaccHands } from '../vr/SaccHands'
+import { TouchConsole, isCoarsePointer } from './TouchConsole'
 import { saccStatus } from '../vr/saccControls'
 import { publishSeat } from './StateBeacon'
 import { NET_FLYING, airBase, findAircraftByPilot, pilotNameOf, readNetState, requestLeave, type NetState } from './netState'
@@ -198,7 +199,7 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
   return (
     <>
       <group ref={group}>
-        {hudOn ? (<group position={seatPos}><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands /></group>) : null}
+        {hudOn ? (<group position={seatPos}><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands />{isCoarsePointer() ? <TouchConsole eye={eye} /> : null}</group>) : null}
       </group>
       <group ref={seatGroup}>
         <Seat id={COCKPIT_SEAT_ID} position={seatPos} exitOffset={{ forward: 0, right: -3, up: 0 }}

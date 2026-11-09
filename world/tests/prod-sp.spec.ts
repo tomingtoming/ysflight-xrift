@@ -7,7 +7,7 @@
  */
 import { expect, test } from '@playwright/test'
 import { HAS_AUTH, WORLD_URL } from './playwright.config'
-import { enterWorld, lastBeacon, NET_FLYING, waitForBeacon, walkAndAim, watchBeacon } from './helpers'
+import { aimError, enterWorld, lastBeacon, NET_FLYING, waitForBeacon, walkAndAim, watchBeacon } from './helpers'
 
 test.skip(!HAS_AUTH, 'no tests/.auth/xrift.json -- run `npm run test:auth` once')
 
@@ -104,6 +104,36 @@ test('phone: kiosk 飛行開始 by the interact button boards the cockpit seat',
   expect(seated.net!.state).toBe(NET_FLYING)
   await waitForBeacon(page, (x) => !!x.hud && /SPD/.test(x.hud[0]), 10_000, 'HUD')
   await page.screenshot({ path: test.info().outputPath('sp-kiosk-flying.png') })
+
+  // The phone's switch panel (TouchConsole) below the HUD: look at a button
+  // and tap インタラクト.  THR＋ three times -> throttle 30 %; BRK -> brake on.
+  await waitForBeacon(page, (x) => !!x.console && x.console.length === 8, 10_000, 'switch panel shown')
+  // The panel rides the aircraft, so re-read the button's world position from
+  // the same beacon as the camera on every aiming step.
+  const aimConsole = async (id: string) => {
+    let e = null as Awaited<ReturnType<typeof aimError>> | null
+    for (let it = 0; it < 12; it++) {
+      const b = (await lastBeacon(page))!
+      e = await aimError(page, { id, p: b.console!.find((c) => c.id === id)!.pos })
+      if (Math.abs(e.dyaw) < 1 && Math.abs(e.dpitch) < 1) break
+      await look(e.dyaw * 0.8, e.dpitch * 0.8)
+    }
+    return e!
+  }
+  // Parked first: BRK toggles the engine's brake flag (flight[10]).
+  const brake0 = (await lastBeacon(page))!.flight![10]
+  const aimBrk = await aimConsole('console-brk')
+  console.log(`[sp console aim] BRK dist ${aimBrk.dist.toFixed(2)} dyaw ${aimBrk.dyaw.toFixed(1)} dpitch ${aimBrk.dpitch.toFixed(1)}`)
+  await page.screenshot({ path: test.info().outputPath('sp-console.png') })
+  await interact.tap({ force: true })
+  const brk = await waitForBeacon(page, (x) => !!x.flight && Math.abs(x.flight[10] - brake0) > 0.5, 10_000, 'brake toggled by the panel')
+  console.log(`[sp console] brake ${brake0} -> ${brk.flight![10]}`)
+  // Then THR＋ three times -> 30 % (the aircraft starts rolling, so this comes last).
+  const aimThr = await aimConsole('console-thr+')
+  console.log(`[sp console aim] THR+ dist ${aimThr.dist.toFixed(2)} dyaw ${aimThr.dyaw.toFixed(1)} dpitch ${aimThr.dpitch.toFixed(1)}`)
+  for (let i = 0; i < 3; i++) { await interact.tap({ force: true }); await page.waitForTimeout(400) }
+  const thr = await waitForBeacon(page, (x) => !!x.flight && x.flight[7] > 0.25, 10_000, 'throttle 30 % from three taps')
+  console.log(`[sp console] throttle ${thr.flight![7].toFixed(2)}`)
 
   const jump = page.getByRole('button', { name: 'ジャンプ' })
   const jb = (await jump.boundingBox())!

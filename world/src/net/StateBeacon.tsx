@@ -52,6 +52,8 @@ export interface YsfxBeacon {
   ground: { cam: number; feet: number[] | null; field: number | null }
   /** Seated camera lag along the velocity and the lead applied (seatLead.ts). */
   lag: LagReport | null
+  /** Phone switch panel button centres (TouchConsole), null when not shown. */
+  console: Array<{ id: string; pos: number[] }> | null
 }
 
 const seatPos = new Map<string, number[]>()
@@ -65,6 +67,12 @@ let lobbyCounts: number[] | null = null
 /** LobbyKiosk publishes [aircraft, start positions] once loaded. */
 export function publishLobby(counts: number[] | null): void {
   lobbyCounts = counts
+}
+
+let consoleButtons: Array<{ id: string; pos: number[] }> | null = null
+/** TouchConsole publishes its button centres (world) while shown. */
+export function publishConsole(list: Array<{ id: string; pos: number[] }> | null): void {
+  consoleButtons = list
 }
 
 let localSeat: string | null = null
@@ -117,6 +125,7 @@ export function StateBeacon({ role, room }: { role: NetRole | null; room: string
       vr: { ...saccStatus, right: { ...saccStatus.right }, left: { ...saccStatus.left } },
       eye: eyeCalibration(),
       lag: seatLag(),
+      console: consoleButtons,
       cam: { pos: v.current.toArray(), quat: q.current.toArray() },
       seats: Array.from(seatPos, ([id, pos]) => ({ id, pos })),
       gfx: { vp: ysfxStats.lastVp, eye: ysfxStats.lastEye, rt: ysfxStats.rt, fb: ysfxStats.fb, buf: ysfxStats.buf },

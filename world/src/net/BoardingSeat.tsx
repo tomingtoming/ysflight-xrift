@@ -22,6 +22,7 @@ import { Gunsight, HudGlass } from './HudGlass'
 import { DEFAULT_EYE, EyeCalibrator, type EyeOffset } from './seatEye'
 import { SeatLead, clearSeatLag } from './seatLead'
 import { SaccHands } from '../vr/SaccHands'
+import { TouchConsole, isCoarsePointer } from './TouchConsole'
 import { saccStatus } from '../vr/saccControls'
 import { publishSeat, registerSeat } from './StateBeacon'
 import {
@@ -267,7 +268,7 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
   return (
     <>
     <group ref={group}>
-      {hudOn ? (<group position={seatPos}><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands /></group>) : null}
+      {hudOn ? (<group position={seatPos}><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands />{isCoarsePointer() ? <TouchConsole eye={eye} /> : null}</group>) : null}
     </group>
     <group ref={seatGroup}>
       <Seat

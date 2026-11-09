@@ -79,6 +79,7 @@ export interface Beacon {
   eye: { dx: number; dy: number; dz: number; n: number; res: number[] } | null
   /** Seated camera lag (frames at 60 Hz, measured before the lead) and the lead applied (ms). */
   lag: { speed: number; eFrames: number; leadMs: number } | null
+  console: Array<{ id: string; pos: number[] }> | null
 }
 
 /** Start recording beacons; returns nothing, read with lastBeacon(). */
