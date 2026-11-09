@@ -16,9 +16,11 @@ const WEAPON = ['GUN', 'AIM9', 'AGM65', 'BOMB', 'RKT', 'FLARE', 'AIM120', 'B250'
 export interface FlightHudProps {
   /** Panel centre relative to the seat (metres). */
   position?: [number, number, number]
+  /** false: only compute and publish the lines (beacon), draw nothing -- the HudGlass shows the engine's real HUD. */
+  render?: boolean
 }
 
-export function FlightHud({ position = [0, 0.7, -1.4] }: FlightHudProps) {
+export function FlightHud({ position = [0, 0.7, -1.4], render = true }: FlightHudProps) {
   const mod = useEngine()
   const fonts = useDefaultFont(['ja'])
   const [lines, setLines] = useState<string[]>(['', '', ''])
@@ -54,6 +56,7 @@ export function FlightHud({ position = [0, 0.7, -1.4] }: FlightHudProps) {
   })
 
   if (!mod) return null
+  if (!render) return null
   return (
     <group position={position}>
       <Container

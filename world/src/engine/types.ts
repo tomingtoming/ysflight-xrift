@@ -24,6 +24,7 @@ export interface YsflightModule {
   _FsVrAirListIdentifier: (i: number) => number
   _FsVrAirListName: (i: number) => number
   _FsVrFlightDataPointer: () => number
+  _FsVrHudDataPointer: () => number
   _FsVrGroundProbeDataPointer: () => number
   _FsVrLobbyAirCount: () => number
   _FsVrLobbyAirName: (i: number) => number

@@ -18,7 +18,8 @@ import { useXRift } from '@xrift/world-components'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BoxGeometry, Camera, Mesh, MeshBasicMaterial, Vector2, Vector4, WebGLRenderer } from 'three'
 import { createEngine } from './loadEngine'
-import { isPiloting, setEngine } from './engineStore'
+import { isPiloting, setEngine, setHudTexture } from './engineStore'
+import { createHudTarget, type HudTarget } from './hudTarget'
 import { subscribeKeys } from './keyBridge'
 import type { YsflightModule } from './types'
 
@@ -41,6 +42,7 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
   const [mod, setMod] = useState<YsflightModule | null>(null)
   const modRef = useRef<YsflightModule | null>(null)
   const sizeRef = useRef(new Vector2())
+  const hudRef = useRef<HudTarget | null>(null)
 
   // ---- boot ---------------------------------------------------------------
   useEffect(() => {
@@ -68,6 +70,10 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
         const ext = m._FsVrExternalViewDataPointer() >> 2
         m.HEAPF32[ext] = 1 // external (absolute) eye views
         m.HEAPF32[ext + 1] = 0
+        // Real HUD: an off-screen target the engine renders its flat HUD into.
+        hudRef.current = createHudTarget(m, ctx)
+        setHudTexture(hudRef.current?.texture ?? null)
+        gl.resetState()
         modRef.current = m
         setMod(m)
         setEngine(m)
@@ -79,6 +85,9 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
     return () => {
       cancelled = true
       setEngine(null)
+      setHudTexture(null)
+      hudRef.current?.dispose()
+      hudRef.current = null
       teardownRtc() // a restarted engine (host hand-over) must start from a clean socket layer
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

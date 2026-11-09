@@ -45,3 +45,23 @@ export function setPiloting(on: boolean): void {
 export function isPiloting(): boolean {
   return piloting
 }
+
+// ---- HUD glass texture ----------------------------------------------------
+// The engine's real flat HUD rendered off-screen (engine/hudTarget.ts); the
+// cockpit glass mesh reads it from here.  Same module-level shape as the
+// engine instance (a GL texture is not React state either).
+import type { Texture } from 'three'
+let hudTexture: Texture | null = null
+const hudListeners = new Set<() => void>()
+export function setHudTexture(t: Texture | null): void {
+  hudTexture = t
+  hudListeners.forEach((l) => l())
+}
+function getHudTexture(): Texture | null { return hudTexture }
+function subscribeHud(l: () => void): () => void {
+  hudListeners.add(l)
+  return () => hudListeners.delete(l)
+}
+export function useHudTexture(): Texture | null {
+  return useSyncExternalStore(subscribeHud, getHudTexture, getHudTexture)
+}
