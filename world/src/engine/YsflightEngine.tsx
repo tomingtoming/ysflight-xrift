@@ -17,6 +17,8 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useXRift } from '@xrift/world-components'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BoxGeometry, Camera, Mesh, MeshBasicMaterial, Vector2, Vector4, WebGLRenderer } from 'three'
+import { controlBus } from './controlBus'
+import { frameClock, tickFrameClock } from './frameClock'
 import { createEngine } from './loadEngine'
 import { isPiloting, setEngine, setHudTexture } from './engineStore'
 import { createHudTarget, type HudTarget } from './hudTarget'
@@ -74,6 +76,7 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
         hudRef.current = createHudTarget(m, ctx)
         setHudTexture(hudRef.current?.texture ?? null)
         gl.resetState()
+        controlBus.reset()
         modRef.current = m
         setMod(m)
         setEngine(m)
@@ -129,7 +132,9 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
 
   // ---- simulation step ----------------------------------------------------
   const bootFrames = useRef(0)
-  useFrame(() => {
+  useFrame((_s, _dt, xrFrame) => {
+    // First callback of the frame: everything after reads this timestamp.
+    tickFrameClock(!!gl.xr?.isPresenting, xrFrame)
     const m = modRef.current
     if (!m) return
     if ((bootFrames.current & 63) === 0) muteRtcOverlay()
@@ -139,8 +144,10 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
     // accepts the VR trigger (control block [7]); hold it for a moment, release,
     // then switch to the outside view so the player's own aircraft is drawn.
     const n = bootFrames.current++
-    const ctl = m._FsVrControlDataPointer() >> 2
-    if (n < 240) m.HEAPF32[ctl + 7] = n > 60 && n < 150 ? 1 : 0
+    if (n > 60 && n < 150) controlBus.confirm()
+    // Last frame's input claims -> the control block, then step on the frame's own clock.
+    controlBus.flush(m)
+    m._FsVrSetFrameTimeMs(frameClock.nowMs)
     if (n === 240) {
       const key = m.cwrap('YsfxKeyByCode', 'number', ['string', 'number'])
       key('F2', 1)
@@ -165,6 +172,8 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
     const id = setInterval(() => {
       if (!document.hidden || bootFrames.current < 240) return
       ysfxStats.bgTicks++
+      // No frames while hidden: step on the wall clock (same time origin as the frame clock).
+      mod._FsVrSetFrameTimeMs(performance.now())
       mod._YsfxInterval()
     }, 16)
     return () => clearInterval(id)

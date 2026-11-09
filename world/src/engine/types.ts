@@ -13,6 +13,8 @@ export interface YsflightModule {
   _FsVrExternalViewDataPointer: () => number
   _FsVrPlayerPoseDataPointer: () => number
   _FsVrPlayerVisualDataPointer: () => number
+  _FsVrSetFrameTimeMs: (ms: number) => void
+  _FsVrAbiVersion?: () => number
   _FsVrControlDataPointer: () => number
   _FsVrHandPoseDataPointer: () => number
   _FsVrAircraftStateDataPointer: () => number

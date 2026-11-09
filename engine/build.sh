@@ -21,7 +21,7 @@ done
 
 # Everything the engine exports to the host (fsvr.h blocks + Ysfx* entry points,
 # the latter are EMSCRIPTEN_KEEPALIVE and exported automatically).
-EXPORTED_FUNCTIONS="_main,_malloc,_free,_FsVrSetActive,_FsVrIsActive,_FsVrEyeDataPointer,_FsVrExternalViewDataPointer,_FsVrPlayerPoseDataPointer,_FsVrPlayerVisualDataPointer,_FsVrControlDataPointer,_FsVrHandPoseDataPointer,_FsVrAircraftStateDataPointer,_FsVrConsumeSimDrawnFrames,_FsVrPerfDataPointer,_FsVrHudDataPointer,_FsVrSetMultiview,_FsVrIsMultiview,_FsVrNetRequestJoin,_FsVrNetRequestLeave,_FsVrNetStateDataPointer,_FsVrAirListDataPointer,_FsVrAirListIdentifier,_FsVrAirListName,_FsVrFlightDataPointer,_FsVrLobbyAirCount,_FsVrLobbyAirName,_FsVrLobbyStpCount,_FsVrLobbyStpName,_FsVrLobbyStpPos,_FsVrLobbyStpHeading,_FsVrLobbyFieldCount,_FsVrLobbyFieldName,_FsVrGroundProbeDataPointer"
+EXPORTED_FUNCTIONS="_main,_malloc,_free,_FsVrSetActive,_FsVrIsActive,_FsVrEyeDataPointer,_FsVrExternalViewDataPointer,_FsVrPlayerPoseDataPointer,_FsVrPlayerVisualDataPointer,_FsVrSetFrameTimeMs,_FsVrFrameTimeMs,_FsVrAbiVersion,_FsVrControlDataPointer,_FsVrHandPoseDataPointer,_FsVrAircraftStateDataPointer,_FsVrConsumeSimDrawnFrames,_FsVrPerfDataPointer,_FsVrHudDataPointer,_FsVrSetMultiview,_FsVrIsMultiview,_FsVrNetRequestJoin,_FsVrNetRequestLeave,_FsVrNetStateDataPointer,_FsVrAirListDataPointer,_FsVrAirListIdentifier,_FsVrAirListName,_FsVrFlightDataPointer,_FsVrLobbyAirCount,_FsVrLobbyAirName,_FsVrLobbyStpCount,_FsVrLobbyStpName,_FsVrLobbyStpPos,_FsVrLobbyStpHeading,_FsVrLobbyFieldCount,_FsVrLobbyFieldName,_FsVrGroundProbeDataPointer"
 RUNTIME_METHODS="FS,ENV,GL,HEAPF32,HEAP8,HEAPU8,UTF8ToString,stringToUTF8,ccall,cwrap,addRunDependency,removeRunDependency"
 INCOMING="ENVIRONMENT,arguments,canvas,locateFile,onRuntimeInitialized,preRun,postRun,print,printErr,onAbort,preinitializedWebGLContext,noInitialRun,instantiateWasm"
 
@@ -52,5 +52,17 @@ cmake --build "$BUILD_DIR" --target ysflight32_gl2 -j"$NPROC"
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 cp "$BUILD_DIR/main/ysflight32_gl2.js" "$BUILD_DIR/main/ysflight32_gl2.wasm" "$BUILD_DIR/main/ysflight32_gl2.data" "$DIST_DIR/"
-ls -la "$DIST_DIR"
-echo "Done."
+
+# Which fork commit this binary is (the binaries themselves are not tracked):
+# the world logs it at boot and the test beacon carries it, so a deployed
+# world version can be traced to engine source.
+FORK="$ROOT/upstream/YSFLIGHT"
+FORK_REV="$(git -C "$FORK" rev-parse --short HEAD)"
+if [[ -n "$(git -C "$FORK" status --porcelain --untracked-files=no)" ]]; then FORK_REV+="-dirty"; fi
+# An ES module, not JSON: the world reads it with import(), the way it loads the
+# glue (XRift's upload check refuses fetch() without a network permission).
+printf 'export default {"fork":"%s","built":"%s"}\n' "$FORK_REV" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DIST_DIR/build.js"
+
+# Install into the world's static files (what `npm run dev` and the upload serve).
+"$ROOT/world/scripts-sync-engine.sh"
+echo "Done. ($FORK_REV)"

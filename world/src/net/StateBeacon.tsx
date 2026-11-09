@@ -17,7 +17,9 @@ import { ysfxStats } from '../engine/YsflightEngine'
 import { airBase, airCount, airName, readNetState, type NetState } from './netState'
 import type { NetRole } from './NetSession'
 import { eyeCalibration, type EyeReport } from './seatEye'
-import { seatLag, type LagReport } from './seatLead'
+import { readFeet, seatLag, type LagReport } from './seatLead'
+import { controlBus } from '../engine/controlBus'
+import { engineBuildId } from '../engine/loadEngine'
 import { saccStatus } from '../vr/saccControls'
 import { mouseStick } from '../engine/mouseStick'
 import { isCoarsePointer } from './TouchConsole'
@@ -52,6 +54,8 @@ export interface YsfxBeacon {
   gfx: { vp: number[]; eye: number; rt: null | { w: number; h: number; samples: number }; fb: boolean; buf: number[] }
   /** Engine VR control block [0..8]: stick grabbed, aileron, elevator, rudder, throttle grabbed, throttle, throttle ever, confirm, stick ever. */
   ctl: number[] | null
+  ctlOwner?: string | null
+  engine?: string | null
   /** SaccFlight-style hand controls (vr/saccControls.ts) while presenting and seated. */
   vr: typeof saccStatus
   /** Seat eye calibration: measured hip-to-eye and the residual after applying it (seatEye.ts). */
@@ -127,6 +131,7 @@ export function StateBeacon({ role, room, field }: { role: NetRole | null; room:
   const camera = useThree((s) => s.camera)
   const acc = useRef(0)
   const v = useRef(new Vector3())
+  const feetTmp = useRef(new Vector3())
   const q = useRef(new Quaternion())
   const net = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   useFrame((_s, dt) => {
@@ -136,13 +141,8 @@ export function StateBeacon({ role, room, field }: { role: NetRole | null; room:
     const cam = gl.xr?.isPresenting ? gl.xr.getCamera() : camera
     cam.matrixWorld.decompose(v.current, q.current, new Vector3())
     // Feet from the host's movement (array or {x,y,z}); terrain under them from the engine's probe.
-    let feet: number[] | null = null
-    try {
-      const mv = users.getLocalMovement?.()
-      const p = mv?.position as unknown
-      if (Array.isArray(p)) feet = [p[0], p[1], p[2]]
-      else if (p && typeof p === 'object') { const o = p as { x: number; y: number; z: number }; feet = [o.x, o.y, o.z] }
-    } catch { feet = null }
+    const fv = readFeet(users, feetTmp.current) // what the seat sees (incl. the dev stand-in's delay)
+    const feet: number[] | null = fv ? fv.toArray() : null
     let fieldElev: number | null = null
     if (mod && !probeBusy) {
       const gp = mod._FsVrGroundProbeDataPointer() >> 2
@@ -176,7 +176,9 @@ export function StateBeacon({ role, room, field }: { role: NetRole | null; room:
       const d = mod._FsVrFlightDataPointer() >> 2
       detail.flight = Array.from(f.subarray(d, d + 16))
       const c = mod._FsVrControlDataPointer() >> 2
-      detail.ctl = Array.from(f.subarray(c, c + 9))
+      detail.ctl = Array.from(f.subarray(c, c + 12))
+      detail.ctlOwner = controlBus.owner()
+      detail.engine = engineBuildId()
       const n = airCount(mod)
       for (let i = 0; i < n; i++) {
         const b = airBase(mod, i)

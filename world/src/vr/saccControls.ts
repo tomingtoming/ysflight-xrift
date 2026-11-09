@@ -19,6 +19,7 @@
  * disabled while seated and the left thumbstick also reaches the seat's
  * onControlInput (which the seats ignore while this is active).
  */
+import { CTL } from '../engine/controlBus'
 import { Quaternion, Vector3 } from 'three'
 import type { Hand, XrSample } from './xrHands'
 
@@ -56,8 +57,9 @@ const DIAL_VISIBLE_THRESHOLD = 0.3
 const DIAL_HIDE_DELAY_MS = 1200
 
 // Control block indices (fsvr.h)
-const C_GRABBED = 0, C_AIL = 1, C_ELV = 2, C_RUD = 3, C_THR_GRABBED = 4, C_THR = 5, C_THR_EVER = 6, C_CONFIRM = 7, C_STICK_EVER = 8
-const C_RUDDER_DRIVEN = 11 // this stick twists: the block owns the rudder too (fsvr.h [11]); keyboard/mouse sticks leave it 0 so Z/X/C work
+// Same layout as the engine's control block (engine/controlBus.ts CTL): this file fills an image of it, the bus writes the real one.
+const C_GRABBED = CTL.STICK_HELD, C_AIL = CTL.AIL, C_ELV = CTL.ELV, C_RUD = CTL.RUD, C_THR_GRABBED = CTL.THR_HELD, C_THR = CTL.THR, C_THR_EVER = CTL.THR_OWNED, C_CONFIRM = CTL.CONFIRM, C_STICK_EVER = CTL.STICK_OWNED
+const C_RUDDER_DRIVEN = CTL.RUD_OWNED // this stick twists: the block owns the rudder too; keyboard/mouse sticks never claim it, so Z/X/C work
 
 export interface KeySink {
   /** Hold / release an engine key (KeyboardEvent.code). */

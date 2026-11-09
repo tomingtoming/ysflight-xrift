@@ -4,5 +4,5 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$HERE/public/engine"
-cp "$HERE/../engine/dist/ysflight32_gl2.js" "$HERE/../engine/dist/ysflight32_gl2.wasm" "$HERE/../engine/dist/ysflight32_gl2.data" "$HERE/public/engine/"
+cp "$HERE/../engine/dist/ysflight32_gl2.js" "$HERE/../engine/dist/ysflight32_gl2.wasm" "$HERE/../engine/dist/ysflight32_gl2.data" "$HERE/../engine/dist/build.js" "$HERE/public/engine/"
 ls -la "$HERE/public/engine"

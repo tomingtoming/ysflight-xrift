@@ -7,9 +7,10 @@
  * stick (left button held), Q/A throttle and the other YSFLIGHT keys, Space
  * held to leave.
  */
+import { resolve } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { HAS_AUTH, WORLD_URL } from './playwright.config'
-import { enterWorld, lastBeacon, NET_FLYING, waitForBeacon, walkAndAim, watchBeacon } from './helpers'
+import { enterWorld, keepAuth, lastBeacon, NET_FLYING, waitForBeacon, walkAndAim, watchBeacon } from './helpers'
 
 test.skip(!HAS_AUTH, 'no tests/.auth/xrift.json -- run `npm run test:auth` once')
 
@@ -96,7 +97,7 @@ test('desktop: kiosk 飛行開始, W/S and mouse stick, Q/A throttle, camera at 
   console.log(`[pc lag:first] speed ${fast.lag!.speed.toFixed(1)} m/s, residual ${fast.lag!.eFrames.toFixed(2)} frames, body lag ${fast.lag!.lagMs.toFixed(1)} ms (frame ${fast.lag!.dtMs.toFixed(1)} ms)`)
   await page.waitForTimeout(1500)
   const settled = await waitForBeacon(page, (x) => !!x.lag && x.lag.speed > 40 && Math.abs(x.lag.eFrames) < 0.3, 10_000, 'camera on the cockpit at speed')
-  console.log(`[pc lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, residual ${settled.lag!.eFrames.toFixed(2)} frames, body lag ${settled.lag!.lagMs.toFixed(1)} ms, travel jitter ${settled.lag!.jitterCm.toFixed(1)} cm/frame`)
+  console.log(`[pc lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, residual ${settled.lag!.eFrames.toFixed(2)} frames, body lag ${settled.lag!.lagMs.toFixed(1)} ms, travel jitter ${settled.lag!.jitterCm.toFixed(1)} cm/frame, body-vs-visual shake ${settled.lag!.shakeCm.toFixed(1)} cm; engine ${settled.engine}`)
   // Desktop first person: the beacon's `cockpit` is the true seat (no visual
   // delay) and the avatar's body trails it by its measured lag x speed; the
   // residual eFrames above is what the visuals are matched to (seatLead.ts).
@@ -119,6 +120,7 @@ test('desktop: kiosk 飛行開始, W/S and mouse stick, Q/A throttle, camera at 
   // The aircraft stays, parked (throttle idle, brake on), the player beside it.
   const parked = await waitForBeacon(page, (x) => !!x.net && x.net.state === NET_FLYING && x.aircraft.some((a) => a.player && a.alive) && !!x.flight && x.flight[7] < 0.05 && x.flight[10] > 0.5 && !!x.cockpit, 15_000, 'aircraft parked with the brake on')
   console.log(`[pc parked] throttle ${parked.flight![7].toFixed(2)} brake ${parked.flight![10]} speed ${parked.flight![1].toFixed(1)}`)
+  await keepAuth(page.context(), resolve(import.meta.dirname, '.auth/xrift.json'))
 })
 
 test('desktop: kiosk seat puts the eye on the cockpit point; B/F/Q/A keys; leave, settle, board the parked aircraft again', async ({ page }) => {

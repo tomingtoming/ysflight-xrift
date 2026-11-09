@@ -5,6 +5,7 @@
  *   window.__ysfxStand()       stand up (if the host exposes it)
  *   window.__ysfxLobbyStart(air, stp)  what the kiosk's 飛行開始 does
  *   window.__ysfxSetField(field)  what the host's field pick does
+ *   window.__ysfxBodyLag(frames, forceDelay)  the production host's late body (seatLead.ts)
  *   window.__ysfxHud           last HUD lines (set by FlightHud)
  * Compiled out of production bundles (import.meta.env.DEV gate at the call site).
  */
@@ -13,12 +14,19 @@ import { useEffect } from 'react'
 import { useEngine } from '../engine/engineStore'
 import { setKioskJoin, setPendingJoin } from './lobbyStore'
 import { NET_FLYING, readNetState, requestJoin, requestLeave, type NetState } from './netState'
+import { setDevBodyLag } from './seatLead'
 
 export function DevHooks({ onField }: { onField?: (field: string) => void }) {
   const seat = useSeatContext() as unknown as Record<string, unknown>
   const mod = useEngine()
   useEffect(() => {
     const w = window as unknown as Record<string, unknown>
+    // The production desktop host lands the body one frame late; the dev
+    // player lands it at once.  Stand in for that (?bodylag=N, default 1) so
+    // the lag measurement and the delayed visuals have something to work on.
+    const q = /[?&]bodylag=(\d+)/.exec(location.search)
+    setDevBodyLag(q ? Number(q[1]) : 1, /[?&]forcedelay=1/.test(location.search))
+    w.__ysfxBodyLag = (frames: number, forceDelay = false) => { setDevBodyLag(frames, forceDelay); return 'set' }
     w.__ysfxSetField = (f: string) => { if (!onField) return 'not the host'; onField(f); return 'set' }
     w.__ysfxSit = (id: string) => (seat.sit as (id: string) => unknown)(id)
     w.__ysfxStand = () => {
@@ -43,6 +51,7 @@ export function DevHooks({ onField }: { onField?: (field: string) => void }) {
       delete w.__ysfxSit
       delete w.__ysfxStand
       delete w.__ysfxSetField
+      delete w.__ysfxBodyLag
     }
   }, [seat, mod, onField])
   return null

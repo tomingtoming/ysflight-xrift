@@ -30,9 +30,20 @@
  *    Desktop first person (camera on the eye point) uses no delay at all;
  *    desktop third person and VR use `lag`.
  * 4. `eFrames` reports the residual between the body and the delayed visual,
- *    in frames of the measured frame time: the number the tests watch.
+ *    in frames of the measured frame time, and `shakeCm` its RMS in
+ *    centimetres: how far the avatar (and a VR eye) and the drawn aircraft
+ *    move against each other from frame to frame.  The numbers the tests watch.
+ *
+ * All times come from the frame clock (engine/frameClock.ts), the same one
+ * the simulation steps on.
+ *
+ * Dev stand-in: the local DevEnvironment puts the body on the seat within
+ * the same frame, so none of this had anything to measure off the production
+ * host.  `setDevBodyLag(n)` makes `readFeet` answer n frames late, which is
+ * what the production desktop does (n = 1, measured 16.5 ms at 60 Hz).
  */
 import { Matrix4, Quaternion, Vector3 } from 'three'
+import { frameClock } from '../engine/frameClock'
 
 const MIN_SPEED = 20 // m/s: below this the measurement is noise (head motion, taxiing)
 const MAX_LAG_S = 0.15
@@ -40,14 +51,27 @@ const SETTLE_S = 0.5
 const HISTORY = 16
 const ONE = new Vector3(1, 1, 1)
 
-export interface LagReport { speed: number; eFrames: number; lagMs: number; dtMs: number; jitterCm: number }
+export interface LagReport { speed: number; eFrames: number; lagMs: number; dtMs: number; jitterCm: number; shakeCm: number; visOn: boolean; visBehindM: number }
 let lastLag: LagReport | null = null
 /** The seated local user's lag measurement, for the beacon. */
 export function seatLag(): LagReport | null { return lastLag }
 export function clearSeatLag(): void { lastLag = null }
 
-/** The host's local body (feet) position, if the platform exposes it (array or {x,y,z}). */
-export function readFeet(users: unknown, out: Vector3): Vector3 | null {
+// ---- dev stand-in for the production host's late body ----------------------
+let devLagFrames = 0
+let devForce = false
+let devFrame = -1
+const devRing: Vector3[] = []
+/** Dev only: answer `readFeet` this many frames late; optionally delay the visuals as VR / third person would. */
+export function setDevBodyLag(frames: number, forceDelay = false): void {
+  devLagFrames = Math.max(0, Math.floor(frames))
+  devForce = forceDelay
+  devRing.length = 0
+}
+/** Dev only: treat the desktop first-person view as one whose eye rides the body. */
+export function devForceDelay(): boolean { return devForce }
+
+function readFeetNow(users: unknown, out: Vector3): Vector3 | null {
   try {
     const u = users as { getLocalMovement?: () => { position?: unknown } | null }
     const p = u.getLocalMovement?.()?.position as unknown
@@ -55,6 +79,18 @@ export function readFeet(users: unknown, out: Vector3): Vector3 | null {
     if (p && typeof p === 'object') { const o = p as { x: number; y: number; z: number }; return out.set(o.x, o.y, o.z) }
   } catch { /* no movement API */ }
   return null
+}
+
+/** The host's local body (feet) position, if the platform exposes it (array or {x,y,z}). */
+export function readFeet(users: unknown, out: Vector3): Vector3 | null {
+  const now = readFeetNow(users, out)
+  if (!now || devLagFrames === 0) return now
+  if (devFrame !== frameClock.frame) { // once per frame, however many callers
+    devFrame = frameClock.frame
+    devRing.push(now.clone())
+    while (devRing.length > devLagFrames + 1) devRing.shift()
+  }
+  return out.copy(devRing[0])
 }
 
 /** The last few true poses, sampled back in time (position lerp, attitude slerp). */
@@ -122,6 +158,10 @@ export class SeatLead {
   private speedAvg = 0
   /** Smoothed per-frame deviation of the aircraft's travel from steady motion (m): judder of the simulated pose itself. */
   jitter = 0
+  /** Mean square of the body-vs-delayed-visual miss (m^2): see `shakeCm`. */
+  private shake2 = 0
+  private visOn = false
+  private visBehind = 0
 
   reset(): void {
     this.havePrev = false
@@ -131,6 +171,16 @@ export class SeatLead {
     this.eFrames = 0
     this.speedAvg = 0
     this.jitter = 0
+    this.shake2 = 0
+    this.visOn = false
+    this.visBehind = 0
+  }
+
+  /** What was handed to the eye this frame: the delayed pose (or the true one, `on` false). */
+  reportVisual(on: boolean, visual: Matrix4): void {
+    this.visOn = on
+    this.visBehind = on ? this.d.setFromMatrixPosition(visual).distanceTo(this.pos) : 0
+    if (lastLag) { lastLag.visOn = this.visOn; lastLag.visBehindM = this.visBehind }
   }
 
   /**
@@ -162,9 +212,11 @@ export class SeatLead {
       const target = Math.min(MAX_LAG_S, Math.max(0, e))
       this.lag += (target - this.lag) * Math.min(1, dt / SETTLE_S)
       this.eFrames = (e - this.lag) / this.dtAvg
+      const miss = (e - this.lag) * hSpeed
+      this.shake2 += (miss * miss - this.shake2) * 0.1
     }
     this.eyePrev.copy(this.eye)
     this.haveEye = true
-    if (active) lastLag = { speed: this.speed, eFrames: this.eFrames, lagMs: this.lag * 1000, dtMs: this.dtAvg * 1000, jitterCm: this.jitter * 100 }
+    if (active) lastLag = { speed: this.speed, eFrames: this.eFrames, lagMs: this.lag * 1000, dtMs: this.dtAvg * 1000, jitterCm: this.jitter * 100, shakeCm: Math.sqrt(this.shake2) * 100, visOn: this.visOn, visBehindM: this.visBehind }
   }
 }

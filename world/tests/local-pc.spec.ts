@@ -118,11 +118,28 @@ test('kiosk start boards the cockpit seat, standing up leaves', async ({ page })
   console.log(`[kiosk lag:first] speed ${fast.lag!.speed.toFixed(1)} m/s, residual ${fast.lag!.eFrames.toFixed(2)} frames, body lag ${fast.lag!.lagMs.toFixed(1)} ms (frame ${fast.lag!.dtMs.toFixed(1)} ms)`)
   await page.waitForTimeout(1500)
   const settled = await waitForBeacon(page, (b) => !!b.lag && b.lag.speed > 40 && Math.abs(b.lag.eFrames) < 0.3, 10_000, 'camera on the cockpit at speed')
-  console.log(`[kiosk lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, residual ${settled.lag!.eFrames.toFixed(2)} frames, body lag ${settled.lag!.lagMs.toFixed(1)} ms, travel jitter ${settled.lag!.jitterCm.toFixed(1)} cm/frame`)
-  // The avatar's body (feet) stands under the cockpit seat, not a frame of travel behind it.
+  console.log(`[kiosk lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, residual ${settled.lag!.eFrames.toFixed(2)} frames, body lag ${settled.lag!.lagMs.toFixed(1)} ms, travel jitter ${settled.lag!.jitterCm.toFixed(1)} cm/frame, body-vs-visual shake ${settled.lag!.shakeCm.toFixed(1)} cm`)
+  // The dev stand-in lands the body one frame late, as the production desktop
+  // does (seatLead.ts setDevBodyLag): the measured lag is that frame, and the
+  // feet trail the true seat by lag x speed.
+  expect(Math.abs(settled.lag!.lagMs - settled.lag!.dtMs)).toBeLessThan(4)
   const gap = Math.hypot(settled.ground.feet![0] - settled.cockpit![0], settled.ground.feet![2] - settled.cockpit![2])
-  console.log(`[kiosk body] feet-to-seat ${gap.toFixed(2)} m at ${settled.lag!.speed.toFixed(0)} m/s`)
-  expect(gap).toBeLessThan(0.6)
+  // (The beacon pairs this frame's seat with the stand-in's feet as of the
+  // start of the frame, one frame older than the production host's body is
+  // by the time its beacon runs: lag + one frame here.)
+  const trail = ((settled.lag!.lagMs + settled.lag!.dtMs) / 1000) * settled.lag!.speed
+  console.log(`[kiosk body] feet-to-seat ${gap.toFixed(2)} m, body lag + beacon frame ${trail.toFixed(2)} m at ${settled.lag!.speed.toFixed(0)} m/s`)
+  expect(Math.abs(gap - trail)).toBeLessThan(0.6)
+  // First person draws on time (no delay).  Force the VR / third-person path:
+  // the drawn aircraft and the HUD go back by the body's lag, i.e. onto the body.
+  expect(settled.lag!.visOn).toBe(false)
+  await page.evaluate(() => (window as unknown as { __ysfxBodyLag: (n: number, f: boolean) => string }).__ysfxBodyLag(1, true))
+  await page.waitForTimeout(1500)
+  const delayed = await waitForBeacon(page, (b) => !!b.lag && b.lag.visOn && Math.abs(b.lag.eFrames) < 0.3, 10_000, 'visuals delayed onto the body')
+  const want = (delayed.lag!.lagMs / 1000) * delayed.lag!.speed
+  console.log(`[kiosk delayed] visual ${delayed.lag!.visBehindM.toFixed(2)} m behind the simulated pose, body lag ${want.toFixed(2)} m at ${delayed.lag!.speed.toFixed(0)} m/s, shake ${delayed.lag!.shakeCm.toFixed(1)} cm`)
+  expect(Math.abs(delayed.lag!.visBehindM - want)).toBeLessThan(0.15)
+  await page.evaluate(() => (window as unknown as { __ysfxBodyLag: (n: number, f: boolean) => string }).__ysfxBodyLag(1, false))
   await page.screenshot({ path: test.info().outputPath('local-kiosk-fast.png') })
   // The aircraft rolls along the runway: its velocity direction is the apron's runway direction (World.tsx heading convention).
   const p0 = settled.aircraft.find((a) => a.player)!.pos

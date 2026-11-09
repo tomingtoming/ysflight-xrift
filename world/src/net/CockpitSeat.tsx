@@ -16,7 +16,9 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { Seat, useSeatContext, useUsers } from '@xrift/world-components'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Group, Matrix4, Quaternion, Vector3 } from 'three'
+import { controlBus } from '../engine/controlBus'
 import { setPiloting, useEngine } from '../engine/engineStore'
+import { frameClock } from '../engine/frameClock'
 import { isKeyDown } from '../engine/keyBridge'
 import { mouseStick, setMouseStickEnabled } from '../engine/mouseStick'
 import { StickMarker } from './StickMarker'
@@ -24,7 +26,7 @@ import { FlightHud } from './FlightHud'
 import { Gunsight, HudGlass } from './HudGlass'
 import { kioskJoinPending, setKioskJoin } from './lobbyStore'
 import { DEFAULT_EYE, EyeCalibrator, type EyeOffset } from './seatEye'
-import { PoseHistory, SeatLead, clearSeatLag, readFeet } from './seatLead'
+import { PoseHistory, SeatLead, clearSeatLag, devForceDelay, readFeet } from './seatLead'
 import { SaccHands } from '../vr/SaccHands'
 import { TouchConsole, isCoarsePointer } from './TouchConsole'
 import { saccStatus } from '../vr/saccControls'
@@ -34,10 +36,6 @@ import { NET_FLYING, airBase, findAircraftByPilot, pilotNameOf, readNetState, ty
 interface SeatOccupant { id: string; isLocalUser: boolean }
 interface SeatControlInput { forward: number; right: number }
 
-const CTL_GRABBED = 0
-const CTL_AILERON = 1
-const CTL_ELEVATOR = 2
-const CTL_STICK_EVER_GRABBED = 8
 const STICK_RATE = 2.5
 export const COCKPIT_SEAT_ID = 'ysfx-cockpit'
 
@@ -103,15 +101,11 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     if (f[d] !== 0 && f[d + 10] < 0.5) tapKey('KeyB') // the idle throttle is enforced per frame below
   }, [mod, tapKey])
 
+  /** The keyboard/joystick stick starts again from neutral (claims simply stop: controlBus). */
   const releaseStick = useCallback(() => {
-    if (!mod) return
-    const c = mod._FsVrControlDataPointer() >> 2
-    mod.HEAPF32[c + CTL_GRABBED] = 0
-    mod.HEAPF32[c + CTL_AILERON] = 0
-    mod.HEAPF32[c + CTL_ELEVATOR] = 0
     stickRef.current.ail = 0
     stickRef.current.elv = 0
-  }, [mod])
+  }, [])
 
   const endLocalFlight = useCallback(() => {
     if (!flyingRef.current) return
@@ -134,11 +128,7 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     const right = input.right - (isKeyDown('KeyD') ? 1 : 0) + (isKeyDown('KeyA') ? 1 : 0)
     st.ail = toward(st.ail, Math.max(-1, Math.min(1, right)))
     st.elv = toward(st.elv, Math.max(-1, Math.min(1, -input.forward)))
-    const c = mod._FsVrControlDataPointer() >> 2
-    mod.HEAPF32[c + CTL_GRABBED] = 1
-    mod.HEAPF32[c + CTL_AILERON] = st.ail
-    mod.HEAPF32[c + CTL_ELEVATOR] = st.elv
-    mod.HEAPF32[c + CTL_STICK_EVER_GRABBED] = 1
+    controlBus.stick('host', st.ail, st.elv)
   }, [mod])
 
   const onEnter = useCallback((o: SeatOccupant) => {
@@ -149,8 +139,8 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     history.current.reset()
     publishSeat(COCKPIT_SEAT_ID)
     // Boarding again: hand the throttle back to the keys (parkAircraft set the block).
-    if (mod) mod.HEAPF32[(mod._FsVrControlDataPointer() >> 2) + 6] = 0
-  }, [mod])
+    controlBus.throttleToKeys()
+  }, [])
   const onLeave = useCallback((o: SeatOccupant) => {
     if (!o.isLocalUser) return
     seatedRef.current = false
@@ -163,10 +153,11 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     parkAircraft()
   }, [endLocalFlight, parkAircraft])
 
-  useFrame((_s, dt) => {
+  useFrame(() => {
     const g = group.current
     const sg = seatGroup.current
     if (!g || !sg || !mod) return
+    const dt = frameClock.dt
     g.matrixAutoUpdate = false
     sg.matrixAutoUpdate = false
     for (const code of tapRelease.current) mod.ccall('YsfxKeyByCode', 'number', ['string', 'number'], [code, 0])
@@ -188,11 +179,7 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     if (own && !mouseOwner.current) { mouseOwner.current = true; setMouseStickEnabled(true) }
     else if (!own && mouseOwner.current) { mouseOwner.current = false; setMouseStickEnabled(false) }
     if (own && mouseStick.grabbed) {
-      const c = mod._FsVrControlDataPointer() >> 2
-      mod.HEAPF32[c + CTL_GRABBED] = 1
-      mod.HEAPF32[c + CTL_AILERON] = mouseStick.ail
-      mod.HEAPF32[c + CTL_ELEVATOR] = mouseStick.elv
-      mod.HEAPF32[c + CTL_STICK_EVER_GRABBED] = 1
+      controlBus.stick('mouse', mouseStick.ail, mouseStick.elv)
       mouseWas.current = true
     } else if (mouseWas.current) {
       mouseWas.current = false
@@ -218,12 +205,8 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     const canBoard = flying && airIndex >= 0 && !seatedRef.current
     if (canBoard !== reboardable) setReboardable(canBoard)
     if (flying && !seatedRef.current) {
-      // Parked: keep the throttle at idle every frame.  The hands / switch
-      // panel clear the throttle flag when they unmount, so a one-off write
-      // at leave time would not survive them.
-      const c = mod._FsVrControlDataPointer() >> 2
-      const f = mod.HEAPF32
-      f[c + 3] = 0; f[c + 4] = 0; f[c + 5] = 0; f[c + 6] = 1
+      // Parked: idle throttle, claimed every frame nobody is aboard.
+      controlBus.park()
     }
     // Desktop first person: the camera sits on the cockpit eye point of the
     // previous frame's HUD pose (g.matrixWorld is still last frame's here).
@@ -263,14 +246,15 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     const active = seatedRef.current && flyingRef.current
     lead.current.update(dt, g.matrix, ref, body ?? camPos.current, active)
     sg.matrix.copy(g.matrix)
-    const now = performance.now() / 1000
+    const now = frameClock.nowMs / 1000
     history.current.push(now, g.matrix)
-    const delay = active && (gl.xr?.isPresenting || !firstPerson) ? lead.current.lag : 0
+    const delay = active && (gl.xr?.isPresenting || !firstPerson || devForceDelay()) ? lead.current.lag : 0
     const vis = mod._FsVrPlayerVisualDataPointer() >> 2
     if (delay > 0.0005 && history.current.sample(now - delay, g.matrix)) {
       mod.HEAPF32[vis] = 1
       for (let i = 0; i < 16; i++) mod.HEAPF32[vis + 1 + i] = g.matrix.elements[i]
     } else mod.HEAPF32[vis] = 0
+    lead.current.reportVisual(mod.HEAPF32[vis] !== 0, g.matrix)
     g.updateMatrixWorld(true)
     sg.updateMatrixWorld(true)
     if (airIndex >= 0) {

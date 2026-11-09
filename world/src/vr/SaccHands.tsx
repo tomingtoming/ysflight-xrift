@@ -12,6 +12,7 @@ import { createPortal, useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import { CanvasTexture, Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { useEngine } from '../engine/engineStore'
+import { CTL, controlBus } from '../engine/controlBus'
 import { LEFT_DIAL, RIGHT_DIAL, SaccControls, saccStatus, type DialEntry } from './saccControls'
 import { makeXrSample, sampleXr, type Hand } from './xrHands'
 
@@ -89,9 +90,12 @@ export function SaccHands() {
     })
   }
 
+  // saccControls writes a control-block image of its own; what it holds is
+  // then claimed on the bus (engine/controlBus.ts), the one writer of the real block.
+  const image = useRef(new Float32Array(16))
   useEffect(() => () => {
-    const md = modRef.current
-    ctl.current?.detach(md ? md.HEAPF32 : null, md ? md._FsVrControlDataPointer() >> 2 : 0)
+    ctl.current?.detach(image.current, 0)
+    controlBus.releaseYawAndThrottle()
   }, [])
 
   useFrame((state, _dt, frame) => {
@@ -99,15 +103,18 @@ export function SaccHands() {
     const sc = ctl.current
     if (!md || !sc) return
     const s = sampleXr(state, frame as XRFrame | undefined, sample.current)
-    const f = md.HEAPF32
-    const c = md._FsVrControlDataPointer() >> 2
+    const f = image.current
+    const c = 0
     if (!s.presenting) {
-      if (sc.engaged) sc.detach(f, c)
+      if (sc.engaged) { sc.detach(f, c); controlBus.releaseYawAndThrottle() }
       groups.left.current && (groups.left.current.visible = false)
       groups.right.current && (groups.right.current.visible = false)
       return
     }
     sc.update(s, f, c, performance.now())
+    if (f[CTL.STICK_HELD] > 0.5) controlBus.stick('vr', f[CTL.AIL], f[CTL.ELV], f[CTL.RUD])
+    if (f[CTL.THR_HELD] > 0.5) controlBus.throttle(f[CTL.THR], true)
+    if (f[CTL.CONFIRM] > 0.5) controlBus.confirm()
 
     const cam = state.gl.xr.getCamera()
     rig.current.copy(cam.matrixWorld).multiply(s.viewerInv) // reference space -> world

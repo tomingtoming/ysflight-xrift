@@ -83,7 +83,11 @@ export interface Beacon {
   /** Seat eye calibration (src/net/seatEye.ts): hip-to-eye measured, residual after applying. */
   eye: { dx: number; dy: number; dz: number; n: number; res: number[] } | null
   /** Seated body lag: residual vs the delayed visual (frames), the body lag the visuals are delayed by (ms), frame time (ms). */
-  lag: { speed: number; eFrames: number; lagMs: number; dtMs: number; jitterCm: number } | null
+  lag: { speed: number; eFrames: number; lagMs: number; dtMs: number; jitterCm: number; shakeCm: number; visOn: boolean; visBehindM: number } | null
+  /** Fork commit the engine binary was built from (engine/build.sh). */
+  engine?: string | null
+  /** Which source held the stick at the last control flush (engine/controlBus.ts). */
+  ctlOwner?: string | null
   console: Array<{ id: string; pos: number[] }> | null
   mouse: { enabled: boolean; grabbed: boolean; ail: number; elv: number; grabs: number }
   gates: { coarse: boolean; xr: boolean }
@@ -175,4 +179,23 @@ export async function walkAndAim(
     await look(e.dyaw * 0.8, e.dpitch * 0.8)
   }
   return e
+}
+
+/**
+ * Keep the saved production session alive: after a run, write the context's
+ * cookies back to the auth file when its refresh token outlives the saved
+ * one (the server may renew it on use).  Never overwrites with a session that
+ * lost its refresh token (logged out, kicked): the file then stays as it was.
+ */
+export async function keepAuth(context: import('@playwright/test').BrowserContext, authFile: string): Promise<void> {
+  const fs = await import('node:fs')
+  const expiry = (cookies: Array<{ name: string; expires: number }>) => cookies.find((c) => c.name === 'xrift-refresh-token')?.expires ?? -1
+  const state = await context.storageState()
+  const fresh = expiry(state.cookies)
+  let saved = -1
+  try { saved = expiry(JSON.parse(fs.readFileSync(authFile, 'utf8')).cookies ?? []) } catch { /* unreadable: leave it alone */ return }
+  if (fresh > saved + 60) {
+    fs.writeFileSync(authFile, JSON.stringify(state, null, 2))
+    console.log(`[auth] session renewed: refresh token now good for ${((fresh - Date.now() / 1000) / 86400).toFixed(1)} days`)
+  } else console.log(`[auth] saved session kept: refresh token good for ${((saved - Date.now() / 1000) / 86400).toFixed(1)} days`)
 }

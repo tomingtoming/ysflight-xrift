@@ -126,5 +126,22 @@ export async function createEngine(
       FS.writeFile(`${dir}/config/ctlassign.cfg`, CTL_ASSIGN_KEYBOARD)
     },
   ]
-  return create(moduleOpts)
+  const m = await create(moduleOpts)
+  // The shared-memory layout this world was written against (fsvr.h
+  // FSVR_ABI_VERSION).  A stale engine binary next to a newer world would
+  // otherwise run and misread floats.
+  const abi = m._FsVrAbiVersion?.() ?? 0
+  if (abi !== ENGINE_ABI) throw new Error(`engine ABI ${abi}, world expects ${ENGINE_ABI}: rebuild the engine (engine/build.sh)`)
+  import(/* @vite-ignore */ `${engineBase(baseUrl)}build.js`).then((mod: { default?: { fork?: string; built?: string } }) => {
+    const b = mod.default ?? {}
+    engineBuild = `${b.fork ?? '?'} ${b.built ?? ''}`.trim()
+    console.log('[ysf] engine build', engineBuild)
+  }).catch(() => { /* no build stamp: an engine installed by hand */ })
+  return m
 }
+
+/** fsvr.h FSVR_ABI_VERSION this world is written against. */
+export const ENGINE_ABI = 2
+let engineBuild: string | null = null
+/** The fork commit the running engine binary was built from (engine/build.sh), once known. */
+export function engineBuildId(): string | null { return engineBuild }

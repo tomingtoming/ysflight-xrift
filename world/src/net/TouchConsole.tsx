@@ -19,6 +19,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useDefaultFont } from '@xrift/world-components'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Group, Vector3 } from 'three'
+import { controlBus } from '../engine/controlBus'
 import { useEngine } from '../engine/engineStore'
 import type { EyeOffset } from './seatEye'
 import { publishConsole } from './StateBeacon'
@@ -33,7 +34,6 @@ const COLS = 4 // two rows of four: a portrait phone shows the whole panel
 const ROWS = N / COLS
 const W = PAD * 2 + BTN_W * COLS + GAP * (COLS - 1)
 const H = PAD * 2 + BTN_H * ROWS + GAP * (ROWS - 1)
-const C_THR_GRABBED = 4, C_THR = 5, C_THR_EVER = 6
 const FIRE_FRAMES = 30
 
 type Act = 'thr-' | 'thr+' | 'Tab' | 'KeyG' | 'KeyB' | 'KeyF' | 'KeyR' | 'fire'
@@ -73,8 +73,7 @@ export function TouchConsole({ eye }: { eye: EyeOffset }) {
   useEffect(() => () => {
     const m = modRef.current
     if (!m) return
-    const c = m._FsVrControlDataPointer() >> 2
-    m.HEAPF32[c + C_THR_EVER] = 0
+    controlBus.throttleToKeys()
     m.ccall('YsfxKeyByCode', 'number', ['string', 'number'], ['Space', 0])
   }, [])
 
@@ -86,13 +85,9 @@ export function TouchConsole({ eye }: { eye: EyeOffset }) {
     if (!mod) return
     const f = mod.HEAPF32
     if (act === 'thr-' || act === 'thr+') {
-      const c = mod._FsVrControlDataPointer() >> 2
       const d = mod._FsVrFlightDataPointer() >> 2
-      const cur = f[c + C_THR_EVER] > 0.5 ? f[c + C_THR] : f[d + 7]
-      const v = Math.min(1, Math.max(0, Math.round((cur + (act === 'thr+' ? 0.1 : -0.1)) * 10) / 10))
-      f[c + C_THR] = v
-      f[c + C_THR_EVER] = 1
-      f[c + C_THR_GRABBED] = 0
+      const cur = controlBus.throttleValue() ?? f[d + 7]
+      controlBus.throttle(Math.round((cur + (act === 'thr+' ? 0.1 : -0.1)) * 10) / 10)
       return
     }
     if (act === 'fire') {

@@ -31,8 +31,12 @@ cd world && npm install && echo 'VITE_YSFX_ENGINE_URL=http://localhost:5180/' > 
 npm run dev                     # http://localhost:5173  (Space = confirm "center joystick", F2 = outside view)
 ```
 
-Production: `world/scripts-sync-engine.sh` copies `engine/dist` into
-`world/public/engine/` and the world loads it from `${baseUrl}engine/`.
+Production: `engine/build.sh` ends by running `world/scripts-sync-engine.sh`,
+which installs the binary into `world/public/engine/` (not tracked) together
+with `build.js`, a stamp of the
+fork commit it was built from; the world loads both from `${baseUrl}engine/`,
+logs the stamp at boot and refuses a binary whose `FSVR_ABI_VERSION` (fsvr.h)
+differs from `ENGINE_ABI` (world/src/engine/loadEngine.ts).
 
 ## How it fits together
 
