@@ -5,7 +5,7 @@
 | `local-pc` | XRift dev environment (vite) + local signaling + engine files, all started by Playwright | keyboard; sitting via the dev-only `window.__ysfxSit` hook |
 | `prod-pc` | app.xrift.net, desktop Chrome | the real host UI |
 | `prod-sp` | app.xrift.net, Pixel 7 profile (touch, mobile UA) | the real host's mobile UI |
-| `prod-vr` | app.xrift.net inside an emulated immersive-vr session (playwright-webxr / IWER) | the real host's VR interaction: controller ray + trigger on a seat, thumbstick; target-ray pointer + short trigger on the kiosk's uikit button; A held to leave |
+| `prod-vr` | app.xrift.net inside an emulated immersive-vr session (playwright-webxr / IWER) | the real host's VR interaction: controller ray + trigger on a seat; the world's SaccFlight-style hands (`xr.hold('right','squeeze')` + `setGripPose` rotations → stick, left grip push → throttle, `setAxes` dial + trigger → brake toggle); eye calibration residual; target-ray pointer + short trigger on the kiosk's uikit button; A held to leave |
 | `prod-multi` | app.xrift.net, two contexts: the logged-in account (host) + a guest (client) | host election, WebRTC client connection, kiosk flights both ways, each side's aircraft list shows the other |
 
 Observation channel: the world dispatches a `ysfx-state` CustomEvent on `window` twice a second

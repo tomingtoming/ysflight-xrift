@@ -73,6 +73,10 @@ export interface Beacon {
   lobby: number[] | null
   kiosk: { hovers: number; lastPointer: string; ev: Record<string, number> }
   ground: { cam: number; feet: number[] | null; field: number | null }
+  /** SaccFlight-style hand controls (src/vr/saccControls.ts). */
+  vr: { active: boolean; right: { grabbed: boolean; sel: number; visible: boolean }; left: { grabbed: boolean; sel: number; visible: boolean }; keys: number; lastKey: string; ail: number; elv: number; rud: number; thr: number; ab: boolean }
+  /** Seat eye calibration (src/net/seatEye.ts): hip-to-eye measured, residual after applying. */
+  eye: { dx: number; dy: number; dz: number; n: number; res: number[] } | null
 }
 
 /** Start recording beacons; returns nothing, read with lastBeacon(). */

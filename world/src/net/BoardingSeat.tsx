@@ -12,13 +12,16 @@
  * On other clients the same seat follows the aircraft its occupant flies,
  * found in the engine's aircraft list by the occupant's pilot name.
  */
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import { Seat, useUsers } from '@xrift/world-components'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { setPiloting, useEngine } from '../engine/engineStore'
 import { FlightHud } from './FlightHud'
 import { Gunsight, HudGlass } from './HudGlass'
+import { DEFAULT_EYE, EyeCalibrator, type EyeOffset } from './seatEye'
+import { SaccHands } from '../vr/SaccHands'
+import { saccStatus } from '../vr/saccControls'
 import { publishSeat, registerSeat } from './StateBeacon'
 import {
   NET_FLYING,
@@ -63,21 +66,28 @@ export interface BoardingSeatProps {
   color?: string
 }
 
-const SEAT_DROP = 0.72 // seat origin = hip; the engine's cockpit point is the pilot's eye
+const PEDESTAL_EYE_Y = 0.45 + DEFAULT_EYE.dy // seat origin on the pedestal is at 0.45 m
 const RESPAWN_DELAY_S = 4
 const JOIN_RETRY_S = 6
 
 export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '#3a7bd5' }: BoardingSeatProps) {
   const mod = useEngine()
   const { localUser, remoteUsers } = useUsers()
+  const gl = useThree((s) => s.gl)
+  const camera = useThree((s) => s.camera)
   const group = useRef<Group>(null)
   const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   const occupantRef = useRef<SeatOccupant | null>(null)
   const flyingRef = useRef(false) // local user's flight is active (seat rides the aircraft)
   const joinAtRef = useRef(0) // engine time (s) when a join may be requested
   const clockRef = useRef(0)
-  const [cockpit, setCockpit] = useState<[number, number, number]>([0, SEAT_DROP + 0.45, 0])
+  // The pilot's eye point in the group frame (pedestal: fixed; aircraft: the
+  // engine's cockpit point); the seat origin sits eye.dy below, eye.dz behind.
+  const [cockpit, setCockpit] = useState<[number, number, number]>([0, PEDESTAL_EYE_Y, 0])
   const cockpitRef = useRef(cockpit)
+  const [eye, setEye] = useState<EyeOffset>(DEFAULT_EYE)
+  const eyeRef = useRef(eye)
+  const calib = useRef(new EyeCalibrator())
   const [hudOn, setHudOn] = useState(false)
   const stickRef = useRef({ ail: 0, elv: 0, fed: false })
 
@@ -129,7 +139,7 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
   // through the keyboard bridge.
   const onControlInput = useCallback(
     (input: SeatControlInput, delta: number) => {
-      if (!mod || !flyingRef.current) return
+      if (!mod || !flyingRef.current || saccStatus.active) return // in VR the hands fly the aircraft
       const st = stickRef.current
       const step = STICK_RATE * Math.max(delta, 0)
       const toward = (v: number, target: number) => v + Math.max(-step, Math.min(step, target - v))
@@ -151,6 +161,7 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
       occupantRef.current = o
       if (o.isLocalUser) {
         joinAtRef.current = clockRef.current // join now
+        calib.current.reset()
         publishSeat(id)
       }
     },
@@ -177,6 +188,13 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
     clockRef.current += dt
     g.matrixAutoUpdate = false
     const occ = occupantRef.current
+    if (occ?.isLocalUser) {
+      const cam = gl.xr?.isPresenting ? gl.xr.getCamera() : camera
+      const cp = cockpitRef.current
+      const e = eyeRef.current
+      const next = calib.current.tick(dt, cam.matrixWorld, g.matrixWorld, [cp[0], cp[1] - e.dy, cp[2] - e.dz], e)
+      if (next) { eyeRef.current = next; setEye(next) }
+    }
     let airIndex = -1
     if (mod && occ) {
       if (occ.isLocalUser) {
@@ -207,16 +225,16 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
       const f = mod.HEAPF32
       g.matrix.fromArray(f, b + 3)
       const c = cockpitRef.current
-      if (Math.abs(f[b + 19] - c[0]) > 1e-3 || Math.abs(f[b + 20] - SEAT_DROP - c[1]) > 1e-3 || Math.abs(f[b + 21] - c[2]) > 1e-3) {
-        const next: [number, number, number] = [f[b + 19], f[b + 20] - SEAT_DROP, f[b + 21]]
+      if (Math.abs(f[b + 19] - c[0]) > 1e-3 || Math.abs(f[b + 20] - c[1]) > 1e-3 || Math.abs(f[b + 21] - c[2]) > 1e-3) {
+        const next: [number, number, number] = [f[b + 19], f[b + 20], f[b + 21]]
         cockpitRef.current = next
         setCockpit(next)
       }
     } else {
       g.matrix.copy(pedestal)
       const c = cockpitRef.current
-      if (c[0] !== 0 || c[1] !== 0.45 || c[2] !== 0) {
-        const next: [number, number, number] = [0, 0.45, 0]
+      if (c[0] !== 0 || c[1] !== PEDESTAL_EYE_Y || c[2] !== 0) {
+        const next: [number, number, number] = [0, PEDESTAL_EYE_Y, 0]
         cockpitRef.current = next
         setCockpit(next)
       }
@@ -230,14 +248,14 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
     <group ref={group}>
       <Seat
         id={id}
-        position={cockpit}
+        position={[cockpit[0], cockpit[1] - eye.dy, cockpit[2] - eye.dz]}
         exitOffset={{ forward: 0, right: -3, up: 0 }}
         interactionText={`乗る: ${label ?? air}`}
         onEnter={onEnter}
         onLeave={onLeave}
         onControlInput={onControlInput}
       >
-        {hudOn ? (<><HudGlass position={[0, SEAT_DROP - 0.05, -1.4]} /><Gunsight eyeHeight={SEAT_DROP - 0.05} /><FlightHud render={false} /></>) : null}
+        {hudOn ? (<><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands /></>) : null}
         {/* pedestal: the thing you aim at */}
         <mesh position={[0, -0.25, 0]}>
           <cylinderGeometry args={[0.55, 0.65, 0.4, 24]} />

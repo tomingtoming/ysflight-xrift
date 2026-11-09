@@ -102,6 +102,10 @@ test('desktop: kiosk 飛行開始 boards the cockpit seat', async ({ page }) => 
   const seated = await waitForBeacon(page, (x) => x.seat === 'ysfx-cockpit', 30_000, 'auto-seated after 飛行開始')
   expect(seated.net!.state).toBe(NET_FLYING)
   await waitForBeacon(page, (x) => !!x.hud && /SPD/.test(x.hud[0]), 10_000, 'HUD')
+  // The seat measures the camera 1.0-1.5 s after sitting and moves its origin
+  // so the eye lands on the engine's cockpit point (seatEye.ts).
+  const eye = await waitForBeacon(page, (x) => !!x.eye && x.eye.n > 0 && Math.abs(x.eye.res[1]) < 0.05 && Math.abs(x.eye.res[2]) < 0.05, 10_000, 'eye on the cockpit point')
+  console.log(`[kiosk eye] hip-to-eye ${eye.eye!.dy.toFixed(3)} m, ahead ${(-eye.eye!.dz).toFixed(3)} m, residual ${eye.eye!.res.map((n) => n.toFixed(3)).join(',')}`)
   await page.screenshot({ path: test.info().outputPath('pc-kiosk-flying.png') })
   await page.keyboard.down('Space'); await page.waitForTimeout(600); await page.keyboard.up('Space')
   const left = await waitForBeacon(page, (x) => x.seat === null, 8_000, 'left the seat')

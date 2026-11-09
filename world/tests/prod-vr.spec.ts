@@ -1,8 +1,9 @@
 /**
  * prod-vr: the real XRift host inside an emulated immersive-vr session
  * (playwright-webxr / IWER).  Exercises the host's own VR interaction:
- * point the right controller at a pedestal, pull the trigger to sit, push the
- * thumbstick to steer, and capture both eyes.
+ * point the right controller at a pedestal, pull the trigger to sit, then the
+ * world's SaccFlight-style hands (grip = stick / throttle, thumbstick dial +
+ * trigger = functions), and capture both eyes.
  *
  * The seat position is known from World.tsx (pedestal RW01_01 at
  * [-123, 0.5, 646]); the avatar spawns at [-117, 0.5, 640] facing +z.
@@ -11,12 +12,12 @@
 import { expect, test } from 'playwright-webxr'
 import { Matrix4, Quaternion, Vector3 } from 'three'
 import { HAS_AUTH, WORLD_URL } from './playwright.config'
-import { NET_FLYING, enterWorld, waitForBeacon, watchBeacon } from './helpers'
+import { NET_FLYING, enterWorld, lastBeacon, waitForBeacon, watchBeacon } from './helpers'
 
 test.skip(!HAS_AUTH, 'no tests/.auth/xrift.json -- run `npm run test:auth` once')
 test.use({ xrStereoEnabled: true })
 
-test('enter VR, sit by controller ray, steer by thumbstick', async ({ page, xr }, testInfo) => {
+test('enter VR, sit by controller ray, fly by SaccFlight-style hands', async ({ page, xr }, testInfo) => {
   await watchBeacon(page)
   await enterWorld(page, WORLD_URL)
   await waitForBeacon(page, (x) => x.role !== null && !!x.net && x.net.ready, 150_000, 'session ready')
@@ -73,16 +74,66 @@ test('enter VR, sit by controller ray, steer by thumbstick', async ({ page, xr }
   expect(flying.aircraft.some((a) => a.player)).toBe(true)
   await xr.attachCapture(testInfo, 'vr-seated')
 
-  // Thumbstick forward = stick forward through the host's seat control input:
-  // the engine's VR stick block reads elevator < 0 (nose down).  Attitude is
-  // not asserted -- the aircraft is parked with no airspeed.
-  await xr.holdAxes('left', 0, -1, { ms: 1500, release: false })
-  const b = await waitForBeacon(page, (x) => !!x.ctl && x.ctl[0] === 1 && x.ctl[2] < -0.5, 20_000, 'stick forward')
-  expect(b.ctl![2]).toBeLessThan(-0.5)
-  await xr.setAxes('left', 0, 0)
-  const released = await waitForBeacon(page, (x) => !!x.ctl && Math.abs(x.ctl[2]) < 0.05, 10_000, 'stick released')
-  expect(Math.abs(released.ctl![2])).toBeLessThan(0.05)
-  await xr.attachCapture(testInfo, 'vr-steering')
+  // The seat measures the headset 1.0-1.5 s after sitting and moves its
+  // origin so the eye lands on the engine's cockpit point (seatEye.ts).
+  const eye = await waitForBeacon(page, (x) => !!x.eye && x.eye.n > 0 && Math.abs(x.eye.res[1]) < 0.05 && Math.abs(x.eye.res[2]) < 0.05, 10_000, 'eye on the cockpit point')
+  console.log(`[vr eye] hip-to-eye ${eye.eye!.dy.toFixed(3)} m, ahead ${(-eye.eye!.dz).toFixed(3)} m, residual ${eye.eye!.res.map((n) => n.toFixed(3)).join(',')}`)
+
+  // ---- SaccFlight-style hands (src/vr/saccControls.ts) --------------------
+  // Stick: squeeze the right grip, then tilt the wrist.  Deflections are the
+  // grip's rotation since the grab in room axes: pitching the controller's
+  // nose up 20 deg about room X reads as elevator +20/45; rolling it 25 deg
+  // clockwise about room Z (right vector dips) reads as aileron +25/45.
+  await xr.hold('right', 'squeeze', { value: 1, frames: 4 })
+  await waitForBeacon(page, (x) => x.vr.active && x.vr.right.grabbed, 5_000, 'stick grabbed')
+  const q = (r: Quaternion) => r.toArray() as [number, number, number, number]
+  const pitchQ = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), (20 * Math.PI) / 180).multiply(gripQ)
+  await xr.setGripPose('right', { position: hand, quaternion: q(pitchQ) })
+  const up = await waitForBeacon(page, (x) => !!x.ctl && x.ctl[0] === 1 && x.ctl[2] > 0.3 && Math.abs(x.ctl[1]) < 0.15, 5_000, 'elevator up from the wrist')
+  console.log(`[vr stick] pitch 20deg -> ail ${up.ctl![1].toFixed(2)} elv ${up.ctl![2].toFixed(2)} rud ${up.ctl![3].toFixed(2)}`)
+  const rollQ = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), (-25 * Math.PI) / 180).multiply(gripQ)
+  await xr.setGripPose('right', { position: hand, quaternion: q(rollQ) })
+  const roll = await waitForBeacon(page, (x) => !!x.ctl && x.ctl[0] === 1 && x.ctl[1] > 0.3 && Math.abs(x.ctl[2]) < 0.15, 5_000, 'aileron right from the wrist')
+  console.log(`[vr stick] roll -25deg -> ail ${roll.ctl![1].toFixed(2)} elv ${roll.ctl![2].toFixed(2)} rud ${roll.ctl![3].toFixed(2)}`)
+  await xr.attachCapture(testInfo, 'vr-stick')
+  await xr.release('right', 'squeeze', { frames: 4 })
+  await xr.setGripPose('right', { position: hand, quaternion: q(gripQ) })
+  await waitForBeacon(page, (x) => !!x.ctl && x.ctl[0] === 0 && Math.abs(x.ctl[1]) < 0.05 && Math.abs(x.ctl[2]) < 0.05, 5_000, 'stick released and centred')
+
+  // Throttle: squeeze the left grip and push it forward (the head's yaw gives
+  // "forward"); 1/6 m is the whole 0..1 range.  Released, the lever stays.
+  const head = await xr.headPose()
+  const fwd = new Vector3(0, 0, -1).applyQuaternion(new Quaternion(...(head.quaternion as [number, number, number, number])))
+  fwd.y = 0
+  fwd.normalize()
+  const lp = new Vector3(hand[0] - 0.4, hand[1], hand[2])
+  await xr.setGripPose('left', { position: lp.toArray() as [number, number, number], quaternion: [0, 0, 0, 1] })
+  await xr.waitForFrames(4)
+  await xr.hold('left', 'squeeze', { value: 1, frames: 4 })
+  await waitForBeacon(page, (x) => x.vr.left.grabbed, 5_000, 'throttle grabbed')
+  await xr.setGripPose('left', { position: lp.clone().addScaledVector(fwd, 0.1).toArray() as [number, number, number], quaternion: [0, 0, 0, 1] })
+  const thr = await waitForBeacon(page, (x) => !!x.ctl && x.ctl[4] === 1 && x.ctl[5] > 0.5 && x.ctl[5] < 0.75, 5_000, 'throttle ~0.6 from a 10 cm push')
+  console.log(`[vr throttle] 10 cm -> ${thr.ctl![5].toFixed(2)}`)
+  await xr.release('left', 'squeeze', { frames: 4 })
+  const kept = await waitForBeacon(page, (x) => !!x.ctl && x.ctl[4] === 0 && x.ctl[5] > 0.5, 5_000, 'throttle lever stays where left')
+  console.log(`[vr throttle] released -> ${kept.ctl![5].toFixed(2)} (grabbed ${kept.ctl![4]})`)
+
+  // Function dial: pull the right thumbstick to 240 deg (sector 4 = Brake),
+  // the placard shows, the trigger fires the picked function: the engine's
+  // brake/spoiler flag (flight[10]) toggles.
+  const brake0 = (await lastBeacon(page))!.flight![10]
+  // xr-standard thumbstick: +y is toward the user, so 240 deg clockwise from up is x=-0.87, y=+0.5.
+  await xr.setAxes('right', Math.sin((240 * Math.PI) / 180), -Math.cos((240 * Math.PI) / 180))
+  const pick = await waitForBeacon(page, (x) => x.vr.right.sel === 4 && x.vr.right.visible, 5_000, 'dial sector Brake picked')
+  console.log(`[vr dial] right sel ${pick.vr.right.sel} visible ${pick.vr.right.visible}`)
+  await xr.attachCapture(testInfo, 'vr-dial')
+  await xr.pressButton('right', 'trigger', { holdMs: 150, frames: 6 })
+  const fired = await waitForBeacon(page, (x) => x.vr.lastKey === 'KeyB', 5_000, 'Brake key dispatched')
+  console.log(`[vr dial] keys ${fired.vr.keys} last ${fired.vr.lastKey}`)
+  await xr.setAxes('right', 0, 0)
+  const brake = await waitForBeacon(page, (x) => !!x.flight && Math.abs(x.flight[10] - brake0) > 0.5, 10_000, 'brake toggled by the dial')
+  console.log(`[vr dial] brake ${brake0} -> ${brake.flight![10]}`)
+  await waitForBeacon(page, (x) => !x.vr.right.visible, 5_000, 'dial placard hidden after recentring')
 })
 
 // LobbyKiosk geometry, as in prod-pc.spec.ts: the 飛行開始 button centre.

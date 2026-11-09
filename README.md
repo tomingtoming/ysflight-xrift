@@ -47,6 +47,33 @@ Production: `world/scripts-sync-engine.sh` copies `engine/dist` into
   `GL.registerContext`); after each draw the host gets its state back
   (`renderer.resetState()` + render target/viewport restore).
 
+## Controls
+
+Desktop keys reach the engine while seated (YSFLIGHT defaults: arrows or
+the host's W/A/S/D stick input, Q/A throttle, Z/X/C rudder, G gear, B brake,
+F/R flaps, Tab afterburner, Space gun); Space held stands up.
+
+In VR the hands fly the aircraft SaccFlight-style (`world/src/vr/`):
+
+| Input | Function |
+|---|---|
+| right grip squeeze | take the stick; wrist pitch / roll / twist since the grab = elevator / aileron / rudder (45° = full) |
+| left grip squeeze | take the throttle; push forward 17 cm = idle → full; shove 3 cm past the stop = afterburner on, pull back below 95 % = off |
+| double squeeze (either grip) | sticky grab: keeps the control without holding the grip; the next squeeze + release lets go |
+| thumbstick (either hand) | pick one of six functions on that hand's dial (shown above the controller); the pick sticks after recentring |
+| trigger (either hand) | fire the picked function. Right dial: Gun, 武器切替, フレア, Gear, Brake, レーダー. Left dial: Flap↑, Smoke, A/B, Flap↓, トリム, Brake |
+| right B | brake / spoiler toggle |
+| right A | stand up (host) |
+
+Left X (mic), left Y (dashboard) and the right thumbstick's turning while seated
+belong to the XRift host and are left alone.
+
+Seats put the pilot's eye on the engine's cockpit point: 1.0 s after sitting the
+seat measures the camera relative to its origin for 0.5 s and moves the hip
+point so the eye lands there (`world/src/net/seatEye.ts`), for any avatar
+height and for a real headset.  The HUD glass and the gunsight follow the
+measured eye.
+
 No dependency on ysflight-web: shared ancestry is the engine forks only.
 
 License: engine and data follow the upstream forks; this repository's own

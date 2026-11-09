@@ -16,6 +16,8 @@ import { useUsers } from '@xrift/world-components'
 import { ysfxStats } from '../engine/YsflightEngine'
 import { airBase, airCount, airName, readNetState, type NetState } from './netState'
 import type { NetRole } from './NetSession'
+import { eyeCalibration, type EyeReport } from './seatEye'
+import { saccStatus } from '../vr/saccControls'
 
 export interface YsfxBeacon {
   t: number
@@ -36,8 +38,12 @@ export interface YsfxBeacon {
   seats: Array<{ id: string; pos: number[] }>
   /** Where the last engine draw went: viewport, eye, host render target, framebuffer bound, drawing buffer. */
   gfx: { vp: number[]; eye: number; rt: null | { w: number; h: number; samples: number }; fb: boolean; buf: number[] }
-  /** Engine VR control block [grabbed, aileron, elevator] (the seat's stick). */
+  /** Engine VR control block [0..8]: stick grabbed, aileron, elevator, rudder, throttle grabbed, throttle, throttle ever, confirm, stick ever. */
   ctl: number[] | null
+  /** SaccFlight-style hand controls (vr/saccControls.ts) while presenting and seated. */
+  vr: typeof saccStatus
+  /** Seat eye calibration: measured hip-to-eye and the residual after applying it (seatEye.ts). */
+  eye: EyeReport | null
   /** [aircraft templates, start positions] offered by the kiosk, once loaded. */
   lobby: number[] | null
   kiosk: { hovers: number; lastPointer: string; ev: Record<string, number> }
@@ -105,6 +111,8 @@ export function StateBeacon({ role, room }: { role: NetRole | null; room: string
     const detail: YsfxBeacon = {
       t: Date.now(), role, room, net: null, flight: null, aircraft: [], hud: hudLines, seat: localSeat, draws: ysfxStats.draws, bg: ysfxStats.bgTicks, ctl: null, lobby: lobbyCounts ? [...lobbyCounts, kioskClicks(), kioskJoinPending() ? 1 : 0] : null, kiosk: kioskHovers(),
       ground: { cam: v.current.y, feet, field },
+      vr: { ...saccStatus, right: { ...saccStatus.right }, left: { ...saccStatus.left } },
+      eye: eyeCalibration(),
       cam: { pos: v.current.toArray(), quat: q.current.toArray() },
       seats: Array.from(seatPos, ([id, pos]) => ({ id, pos })),
       gfx: { vp: ysfxStats.lastVp, eye: ysfxStats.lastEye, rt: ysfxStats.rt, fb: ysfxStats.fb, buf: ysfxStats.buf },
@@ -115,7 +123,7 @@ export function StateBeacon({ role, room }: { role: NetRole | null; room: string
       const d = mod._FsVrFlightDataPointer() >> 2
       detail.flight = Array.from(f.subarray(d, d + 16))
       const c = mod._FsVrControlDataPointer() >> 2
-      detail.ctl = [f[c], f[c + 1], f[c + 2]]
+      detail.ctl = Array.from(f.subarray(c, c + 9))
       const n = airCount(mod)
       for (let i = 0; i < n; i++) {
         const b = airBase(mod, i)

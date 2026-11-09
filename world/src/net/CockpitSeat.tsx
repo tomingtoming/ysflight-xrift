@@ -10,7 +10,7 @@
  *
  * Other clients get seats on every aircraft from RemoteAircraftSeats.
  */
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import { Seat, useSeatContext, useTeleport, useUsers } from '@xrift/world-components'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Group, Matrix4, Quaternion, Vector3 } from 'three'
@@ -18,6 +18,9 @@ import { setPiloting, useEngine } from '../engine/engineStore'
 import { FlightHud } from './FlightHud'
 import { Gunsight, HudGlass } from './HudGlass'
 import { kioskJoinPending, setKioskJoin } from './lobbyStore'
+import { DEFAULT_EYE, EyeCalibrator, type EyeOffset } from './seatEye'
+import { SaccHands } from '../vr/SaccHands'
+import { saccStatus } from '../vr/saccControls'
 import { publishSeat } from './StateBeacon'
 import { NET_FLYING, airBase, findAircraftByPilot, pilotNameOf, readNetState, requestLeave, type NetState } from './netState'
 
@@ -29,7 +32,6 @@ const CTL_AILERON = 1
 const CTL_ELEVATOR = 2
 const CTL_STICK_EVER_GRABBED = 8
 const STICK_RATE = 2.5
-const SEAT_DROP = 0.72
 export const COCKPIT_SEAT_ID = 'ysfx-cockpit'
 
 export interface CockpitSeatProps {
@@ -43,13 +45,20 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
   const { localUser } = useUsers()
   const { sit } = useSeatContext()
   const { teleport } = useTeleport()
+  const gl = useThree((s) => s.gl)
+  const camera = useThree((s) => s.camera)
   const group = useRef<Group>(null)
   const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   const seatedRef = useRef(false)
   const flyingRef = useRef(false)
   const satForAirRef = useRef(-1)
+  // The engine's cockpit point (pilot's eye) in the aircraft frame; the seat
+  // origin (hip) sits eye.dy below and eye.dz behind it (seatEye.ts).
   const [cockpit, setCockpit] = useState<[number, number, number]>([0, 0, 0])
   const cockpitRef = useRef(cockpit)
+  const [eye, setEye] = useState<EyeOffset>(DEFAULT_EYE)
+  const eyeRef = useRef(eye)
+  const calib = useRef(new EyeCalibrator())
   const [hudOn, setHudOn] = useState(false)
   const stickRef = useRef({ ail: 0, elv: 0 })
   const parked = useRef(new Matrix4().compose(new Vector3(home[0], home[1], home[2]), new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), homeYaw), new Vector3(1, 1, 1)))
@@ -81,7 +90,7 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
   }, [mod, pressKey, releaseStick])
 
   const onControlInput = useCallback((input: SeatControlInput, delta: number) => {
-    if (!mod || !flyingRef.current) return
+    if (!mod || !flyingRef.current || saccStatus.active) return // in VR the hands fly the aircraft
     const st = stickRef.current
     const step = STICK_RATE * Math.max(delta, 0)
     const toward = (v: number, target: number) => v + Math.max(-step, Math.min(step, target - v))
@@ -97,6 +106,7 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
   const onEnter = useCallback((o: SeatOccupant) => {
     if (!o.isLocalUser) return
     seatedRef.current = true
+    calib.current.reset()
     publishSeat(COCKPIT_SEAT_ID)
   }, [])
   const onLeave = useCallback((o: SeatOccupant) => {
@@ -111,10 +121,17 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     teleport({ position: home, yaw: (homeYaw * 180) / Math.PI })
   }, [mod, endLocalFlight, teleport, home, homeYaw])
 
-  useFrame(() => {
+  useFrame((_s, dt) => {
     const g = group.current
     if (!g || !mod) return
     g.matrixAutoUpdate = false
+    if (seatedRef.current) {
+      const cam = gl.xr?.isPresenting ? gl.xr.getCamera() : camera
+      const cp = cockpitRef.current
+      const e = eyeRef.current
+      const next = calib.current.tick(dt, cam.matrixWorld, g.matrixWorld, [cp[0], cp[1] - e.dy, cp[2] - e.dz], e)
+      if (next) { eyeRef.current = next; setEye(next) }
+    }
     const ns = readNetState(mod, netRef.current)
     const flying = ns.state === NET_FLYING && ns.playerAirId >= 0
     let airIndex = -1
@@ -139,8 +156,8 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
       const f = mod.HEAPF32
       g.matrix.fromArray(f, b + 3)
       const c = cockpitRef.current
-      if (Math.abs(f[b + 19] - c[0]) > 1e-3 || Math.abs(f[b + 20] - SEAT_DROP - c[1]) > 1e-3 || Math.abs(f[b + 21] - c[2]) > 1e-3) {
-        const next: [number, number, number] = [f[b + 19], f[b + 20] - SEAT_DROP, f[b + 21]]
+      if (Math.abs(f[b + 19] - c[0]) > 1e-3 || Math.abs(f[b + 20] - c[1]) > 1e-3 || Math.abs(f[b + 21] - c[2]) > 1e-3) {
+        const next: [number, number, number] = [f[b + 19], f[b + 20], f[b + 21]]
         cockpitRef.current = next
         setCockpit(next)
       }
@@ -160,9 +177,9 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
 
   return (
     <group ref={group}>
-      <Seat id={COCKPIT_SEAT_ID} position={cockpit} exitOffset={{ forward: 0, right: -3, up: 0 }}
+      <Seat id={COCKPIT_SEAT_ID} position={[cockpit[0], cockpit[1] - eye.dy, cockpit[2] - eye.dz]} exitOffset={{ forward: 0, right: -3, up: 0 }}
         interactionText="操縦席" enabled={false} onEnter={onEnter} onLeave={onLeave} onControlInput={onControlInput}>
-        {hudOn ? (<><HudGlass position={[0, SEAT_DROP - 0.05, -1.4]} /><Gunsight eyeHeight={SEAT_DROP - 0.05} /><FlightHud render={false} /></>) : null}
+        {hudOn ? (<><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands /></>) : null}
       </Seat>
     </group>
   )
