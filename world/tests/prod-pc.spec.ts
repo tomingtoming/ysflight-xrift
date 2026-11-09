@@ -56,6 +56,13 @@ test('desktop: walk, sit by crosshair, stick, throttle, leave', async ({ page })
   for (let i = 0; i < 25; i++) { await page.keyboard.press('q'); await page.waitForTimeout(40) }
   const thr = await waitForBeacon(page, (x) => !!x.flight && x.flight[7] > 0.9 && x.flight[1] > 5, 15_000, 'throttle up, rolling')
   expect(thr.flight![7]).toBeGreaterThan(0.9)
+  // At speed the seated camera must stay on the cockpit: lag.eFrames is the
+  // camera's residual lag along the velocity in frames (seatLead.ts).
+  const fast = await waitForBeacon(page, (x) => !!x.lag && x.lag.speed > 40, 60_000, 'speed > 40 m/s')
+  console.log(`[pc lag:first] speed ${fast.lag!.speed.toFixed(1)} m/s, camera lag ${fast.lag!.eFrames.toFixed(2)} frames, lead ${fast.lag!.leadMs.toFixed(1)} ms`)
+  await page.waitForTimeout(1500)
+  const settled = await waitForBeacon(page, (x) => !!x.lag && x.lag.speed > 40 && Math.abs(x.lag.eFrames) < 0.3, 10_000, 'camera on the cockpit at speed')
+  console.log(`[pc lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, camera lag ${settled.lag!.eFrames.toFixed(2)} frames, lead ${settled.lag!.leadMs.toFixed(1)} ms`)
   await page.screenshot({ path: test.info().outputPath('pc-flying.png') })
 
   // Space leaves the seat -- held, not tapped: a synthesised press of

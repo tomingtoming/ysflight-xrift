@@ -117,6 +117,15 @@ test('enter VR, sit by controller ray, fly by SaccFlight-style hands', async ({ 
   await xr.release('left', 'squeeze', { frames: 4 })
   const kept = await waitForBeacon(page, (x) => !!x.ctl && x.ctl[4] === 0 && x.ctl[5] > 0.5, 5_000, 'throttle lever stays where left')
   console.log(`[vr throttle] released -> ${kept.ctl![5].toFixed(2)} (grabbed ${kept.ctl![4]})`)
+  // Rolling at 60 % throttle: once past 40 m/s the rig must sit on the
+  // cockpit (the kinematic body adds pipeline frames in VR; seatLead.ts
+  // measures them and leads the seat surface).
+  const fast = await waitForBeacon(page, (x) => !!x.lag && x.lag.speed > 40, 90_000, 'speed > 40 m/s')
+  console.log(`[vr lag:first] speed ${fast.lag!.speed.toFixed(1)} m/s, camera lag ${fast.lag!.eFrames.toFixed(2)} frames, lead ${fast.lag!.leadMs.toFixed(1)} ms`)
+  await xr.waitForFrames(90)
+  const settled = await waitForBeacon(page, (x) => !!x.lag && x.lag.speed > 40 && Math.abs(x.lag.eFrames) < 0.3, 10_000, 'rig on the cockpit at speed')
+  console.log(`[vr lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, camera lag ${settled.lag!.eFrames.toFixed(2)} frames, lead ${settled.lag!.leadMs.toFixed(1)} ms`)
+  await xr.attachCapture(testInfo, 'vr-fast')
 
   // Function dial: pull the right thumbstick to 240 deg (sector 4 = Brake),
   // the placard shows, the trigger fires the picked function: the engine's
