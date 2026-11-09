@@ -30,8 +30,17 @@ async function newPilot(browser: Browser, auth: boolean): Promise<Page> {
   const ctx = await browser.newContext({ storageState: auth ? AUTH : undefined, permissions: ['microphone'], locale: 'ja-JP', viewport: { width: 1280, height: 720 } })
   const page = await ctx.newPage()
   await watchBeacon(page)
+  // The engine's own network log ([ysf] printf, and the WebRTC glue's console.error), for the failure report.
+  const lines: string[] = []
+  page.on('console', (m) => {
+    const t = m.text()
+    if (/livekit|signal connect|connection state/i.test(t)) return
+    if (/WebRTC|ysflight-web|connect|LOGON|log.?in|closed|field|room|user|version|reject|timed out/i.test(t)) lines.push(`${new Date().toISOString().slice(11, 19)} ${t.slice(0, 200)}`)
+  })
+  netLog.set(page, lines)
   return page
 }
+const netLog = new WeakMap<Page, string[]>()
 
 async function enterAsGuest(page: Page, instanceUrl: string, name: string) {
   await page.goto(instanceUrl)
@@ -77,7 +86,7 @@ async function kioskStart(page: Page) {
     await page.waitForTimeout(350)
   }
   const walk = async (ms: number) => { await page.keyboard.down('w'); await page.waitForTimeout(ms); await page.keyboard.up('w') }
-  const START_BTN = (await waitForBeacon(page, (x) => !!x.kioskBtn, 10_000, 'kiosk button position')).kioskBtn!
+  const START_BTN = (await waitForBeacon(page, (x) => !!x.apron && !!x.kioskBtn, 30_000, 'apron + kiosk button position')).kioskBtn!
   const aim = await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: START_BTN })
   console.log(`[kiosk aim] dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
   await page.mouse.click(mx, my)
@@ -106,7 +115,12 @@ test('two pilots in one instance: host + client, client sees the host aircraft',
 
   // The client engine must reach the host over WebRTC (net.ready on the
   // client only turns on once the yssocket handshake completed).
-  const cr = await waitForBeacon(client, (x) => !!x.net && x.net.ready, 90_000, 'client connected to host')
+  const cr = await waitForBeacon(client, (x) => !!x.net && x.net.ready, 90_000, 'client connected to host').catch(async (e) => {
+    console.log(`[multi] host net at failure: ${JSON.stringify((await lastBeacon(host))?.net)}`)
+    console.log(`[multi] host engine log:\n  ${(netLog.get(host) ?? []).join('\n  ')}`)
+    console.log(`[multi] client engine log:\n  ${(netLog.get(client) ?? []).join('\n  ')}`)
+    throw e
+  })
   console.log(`[multi] client ready: ${JSON.stringify(cr.net)}`)
   const hr = await waitForBeacon(host, (x) => !!x.net && x.net.connected >= 1, 30_000, 'host counts one client')
   console.log(`[multi] host net: ${JSON.stringify(hr.net)}`)

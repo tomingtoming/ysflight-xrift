@@ -31,7 +31,7 @@ async function kioskStartVr(page: Page, xr: XrApi, testInfo: TestInfo) {
   await xr.enterVR({ button: process.env.YSFX_VR_BUTTON, timeout: 30_000 })
   await xr.waitForFrames(10)
 
-  const bc = await waitForBeacon(page, (x) => !!x.cam && !!x.kioskBtn, 20_000, 'camera pose + kiosk button')
+  const bc = await waitForBeacon(page, (x) => !!x.cam && !!x.apron && !!x.kioskBtn, 30_000, 'camera pose + apron + kiosk button')
   const START_BTN = bc.kioskBtn!
   const hp = await xr.headPose()
   const camWorld = new Matrix4().compose(new Vector3(...(bc.cam!.pos as [number, number, number])), new Quaternion(...(bc.cam!.quat as [number, number, number, number])), new Vector3(1, 1, 1))

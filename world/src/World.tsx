@@ -22,7 +22,12 @@ export interface WorldProps {
  * it; until then the Atsugi RW01 layout of the first worlds.
  */
 interface Apron { spawn: [number, number, number]; dir: [number, number]; elev: number; stp: string }
-const ATSUGI: Apron = { spawn: [-117, 0, 640], dir: [0, -1], elev: 0, stp: 'RW01_01' }
+// The engine's own answer for Atsugi RW01_01 (prod beacon, 2026-11-09), so the
+// apron -- spawn point, kiosk, parked aircraft -- does not jump when the engine
+// loads the default field a few seconds after the visitor arrived.  A phone
+// visitor had aimed at the kiosk's first spot and tapped into thin air once it
+// moved 4.9 m.  Other fields still move it, by hundreds of metres, with a teleport.
+const ATSUGI: Apron = { spawn: [-113.006, 0, 640.549], dir: [0.17365, -0.98481], elev: 0, stp: 'RW01_01' }
 
 const GROUND_TILE = 400 // m; small enough that the host's character controller stands on top (see below)
 const GROUND_TILES_PER_SIDE = 5 // 2 km around the apron: flat airfields only (hilly fields want a heightfield)

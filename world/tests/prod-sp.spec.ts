@@ -54,7 +54,8 @@ async function kioskStart(page: Page, context: BrowserContext) {
   await waitForBeacon(page, (x) => !!x.lobby && x.lobby[0] > 10, 30_000, 'kiosk lists')
   await waitForBeacon(page, (x) => !!x.cam, 20_000, 'camera')
   const ph = await phone(page, context)
-  const START_BTN = (await waitForBeacon(page, (x) => !!x.kioskBtn, 10_000, 'kiosk button position')).kioskBtn!
+  // The kiosk settles once the engine has answered the apron; aiming earlier tapped into thin air (2026-11-09).
+  const START_BTN = (await waitForBeacon(page, (x) => !!x.apron && !!x.kioskBtn, 30_000, 'apron + kiosk button position')).kioskBtn!
   const aim = await walkAndAim(page, ph.look, ph.walk, 2.4, { id: 'kiosk-start', p: START_BTN })
   console.log(`[sp kiosk aim] dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
   await page.screenshot({ path: test.info().outputPath('sp-kiosk.png') })

@@ -40,7 +40,8 @@ async function kioskStart(page: Page) {
     await page.waitForTimeout(350)
   }
   const walk = async (ms: number) => { await page.keyboard.down('w'); await page.waitForTimeout(ms); await page.keyboard.up('w') }
-  const START_BTN = (await waitForBeacon(page, (x) => !!x.kioskBtn, 10_000, 'kiosk button position')).kioskBtn!
+  // The kiosk settles once the engine has answered the apron (start position + elevation).
+  const START_BTN = (await waitForBeacon(page, (x) => !!x.apron && !!x.kioskBtn, 30_000, 'apron + kiosk button position')).kioskBtn!
   const aim = await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: START_BTN })
   console.log(`[kiosk aim] dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
   await page.screenshot({ path: test.info().outputPath('pc-kiosk.png') })
@@ -96,10 +97,14 @@ test('desktop: kiosk 飛行開始, W/S and mouse stick, Q/A throttle, camera at 
   await page.waitForTimeout(1500)
   const settled = await waitForBeacon(page, (x) => !!x.lag && x.lag.speed > 40 && Math.abs(x.lag.eFrames) < 0.3, 10_000, 'camera on the cockpit at speed')
   console.log(`[pc lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, body lag ${settled.lag!.eFrames.toFixed(2)} frames, lead ${settled.lag!.leadMs.toFixed(1)} ms`)
-  // The avatar's body (feet) stands under the cockpit seat, not a frame of travel behind it.
+  // The avatar's body (feet) renders on the TRUE seat; the beacon's `cockpit`
+  // is the led seat the desktop camera is placed from (lead x speed ahead of
+  // the true pose), so the feet trail it by exactly the lead.  eFrames above
+  // is the body's residual lag against the true pose (seatLead.ts).
   const gap = Math.hypot(settled.ground.feet![0] - settled.cockpit![0], settled.ground.feet![2] - settled.cockpit![2])
-  console.log(`[pc body] feet-to-seat ${gap.toFixed(2)} m at ${settled.lag!.speed.toFixed(0)} m/s`)
-  expect(gap).toBeLessThan(0.6)
+  const ledBy = (settled.lag!.leadMs / 1000) * settled.lag!.speed
+  console.log(`[pc body] feet-to-led-seat ${gap.toFixed(2)} m, lead ${ledBy.toFixed(2)} m at ${settled.lag!.speed.toFixed(0)} m/s`)
+  expect(Math.abs(gap - ledBy)).toBeLessThan(0.6)
   await page.screenshot({ path: test.info().outputPath('pc-flying.png') })
 
   // Space leaves the seat -- held, not tapped: a synthesised press of

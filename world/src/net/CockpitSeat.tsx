@@ -250,10 +250,21 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     const body = readFeet(users, feet.current)
     const ref: [number, number, number] = body ? [cp[0], cp[1] - e.dy, cp[2] - e.dz] : cp
     const lv = lead.current.update(dt, g.matrix, ref, body ?? camPos.current, seatedRef.current && flyingRef.current, leadVec.current)
-    g.matrix.elements[12] += lv.x
-    g.matrix.elements[13] += lv.y
-    g.matrix.elements[14] += lv.z
+    // The seat handed to the host is always led: its body lands a frame late,
+    // so the avatar renders on the true aircraft.  The HUD group follows the
+    // EYE.  On desktop the host places the seated camera from the led seat
+    // surface itself, so the HUD is led with it; in VR the eye rides the
+    // body, which renders on the true pose, so the HUD stays on the true pose
+    // (otherwise the glass runs a frame of travel ahead of the eye).
     sg.matrix.copy(g.matrix)
+    sg.matrix.elements[12] += lv.x
+    sg.matrix.elements[13] += lv.y
+    sg.matrix.elements[14] += lv.z
+    if (!gl.xr?.isPresenting) {
+      g.matrix.elements[12] += lv.x
+      g.matrix.elements[13] += lv.y
+      g.matrix.elements[14] += lv.z
+    }
     g.updateMatrixWorld(true)
     sg.updateMatrixWorld(true)
     if (airIndex >= 0) {
