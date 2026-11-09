@@ -137,6 +137,18 @@ test('desktop: kiosk seat puts the eye on the cockpit point; B/F/Q/A keys; leave
   for (let i = 0; i < 10; i++) { await page.keyboard.press('q'); await page.waitForTimeout(40) }
   const kq = await waitForBeacon(page, (x) => !!x.flight && x.flight[7] > 0.4, 5_000, 'Q raises the throttle')
   console.log(`[kiosk keys] brake ${k0[10]} -> ${kb.flight![10]}, flap ${k0[11].toFixed(2)} -> ${kf.flight![11].toFixed(2)}, throttle ${k0[7].toFixed(2)} -> ${kq.flight![7].toFixed(2)}; engine keys ${kq.keys.n} last ${kq.keys.last}`)
+  // Z/C steer the rudder (flight[15]) while the host's seat input holds the stick (fsvr.h [11]).
+  await page.keyboard.down('z')
+  await page.waitForTimeout(1000)
+  const rz = (await lastBeacon(page))!.flight![15]
+  await page.keyboard.up('z')
+  await page.keyboard.down('c')
+  await page.waitForTimeout(2000)
+  const rc = (await lastBeacon(page))!.flight![15]
+  await page.keyboard.up('c')
+  console.log(`[kiosk rudder] Z held 1 s -> ${rz.toFixed(2)}, then C held 2 s -> ${rc.toFixed(2)}`)
+  expect(Math.abs(rz)).toBeGreaterThan(0.2)
+  expect(rc).toBeLessThan(rz - 0.2)
   await page.keyboard.press('b')
   for (let i = 0; i < 12; i++) { await page.keyboard.press('a'); await page.waitForTimeout(40) }
   await waitForBeacon(page, (x) => !!x.flight && x.flight[7] < 0.05, 5_000, 'A brings the throttle back')

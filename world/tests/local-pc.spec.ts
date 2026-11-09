@@ -47,6 +47,22 @@ test('kiosk start -> join -> keyboard stick, mouse stick, throttle and HUD', asy
   expect(elv[0]).toBe(1)
   expect(elv[2]).toBeLessThan(-0.5)
 
+  // YSFLIGHT's own rudder keys keep working while the seat input holds the
+  // stick: the block flags no yaw axis (fsvr.h [11]), so Z/C reach the engine
+  // and flight[15] is the rudder it flies with.  (A desktop pilot had no yaw
+  // at all before, 2026-11-10.)
+  await page.keyboard.down('z')
+  await page.waitForTimeout(1000)
+  const rz = (await lastBeacon(page))!.flight![15]
+  await page.keyboard.up('z')
+  await page.keyboard.down('c')
+  await page.waitForTimeout(2000)
+  const rc = (await lastBeacon(page))!.flight![15]
+  await page.keyboard.up('c')
+  console.log(`[rudder] Z held 1 s -> ${rz.toFixed(2)}, then C held 2 s -> ${rc.toFixed(2)}`)
+  expect(Math.abs(rz)).toBeGreaterThan(0.2)
+  expect(rc).toBeLessThan(rz - 0.2)
+
   // Mouse stick: hold the left button, the mouse's travel since the grab is
   // the deflection (250 px = full); release and it springs back.
   await page.mouse.move(640, 360)

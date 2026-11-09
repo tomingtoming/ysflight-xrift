@@ -57,6 +57,7 @@ const DIAL_HIDE_DELAY_MS = 1200
 
 // Control block indices (fsvr.h)
 const C_GRABBED = 0, C_AIL = 1, C_ELV = 2, C_RUD = 3, C_THR_GRABBED = 4, C_THR = 5, C_THR_EVER = 6, C_CONFIRM = 7, C_STICK_EVER = 8
+const C_RUDDER_DRIVEN = 11 // this stick twists: the block owns the rudder too (fsvr.h [11]); keyboard/mouse sticks leave it 0 so Z/X/C work
 
 export interface KeySink {
   /** Hold / release an engine key (KeyboardEvent.code). */
@@ -232,6 +233,7 @@ export class SaccControls {
       f[c + C_ELV] = elv
       f[c + C_RUD] = rud
       f[c + C_STICK_EVER] = 1
+      f[c + C_RUDDER_DRIVEN] = 1
       st.ever = true
       saccStatus.ail = ail; saccStatus.elv = elv; saccStatus.rud = rud
     } else {
@@ -324,6 +326,7 @@ export class SaccControls {
       // that once used the hands would otherwise have dead keys for good.
       f[c + C_THR_EVER] = 0
       f[c + C_CONFIRM] = 0
+      f[c + C_RUDDER_DRIVEN] = 0
     }
     this.stick.grabbed = false
     this.thr.grabbed = false
