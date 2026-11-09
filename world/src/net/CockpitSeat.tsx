@@ -19,6 +19,7 @@ import { FlightHud } from './FlightHud'
 import { Gunsight, HudGlass } from './HudGlass'
 import { kioskJoinPending, setKioskJoin } from './lobbyStore'
 import { DEFAULT_EYE, EyeCalibrator, type EyeOffset } from './seatEye'
+import { SeatLead, clearSeatLag } from './seatLead'
 import { SaccHands } from '../vr/SaccHands'
 import { saccStatus } from '../vr/saccControls'
 import { publishSeat } from './StateBeacon'
@@ -47,7 +48,11 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
   const { teleport } = useTeleport()
   const gl = useThree((s) => s.gl)
   const camera = useThree((s) => s.camera)
-  const group = useRef<Group>(null)
+  const group = useRef<Group>(null) // true aircraft pose: HUD, gunsight, hands
+  const seatGroup = useRef<Group>(null) // the pose the host reads: true pose led by the measured delay
+  const lead = useRef(new SeatLead())
+  const leadVec = useRef(new Vector3())
+  const camPos = useRef(new Vector3())
   const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   const seatedRef = useRef(false)
   const flyingRef = useRef(false)
@@ -107,12 +112,14 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     if (!o.isLocalUser) return
     seatedRef.current = true
     calib.current.reset()
+    lead.current.reset()
     publishSeat(COCKPIT_SEAT_ID)
   }, [])
   const onLeave = useCallback((o: SeatOccupant) => {
     if (!o.isLocalUser) return
     seatedRef.current = false
     publishSeat(null)
+    clearSeatLag()
     setKioskJoin(false)
     if (mod) {
       endLocalFlight()
@@ -123,10 +130,13 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
 
   useFrame((_s, dt) => {
     const g = group.current
-    if (!g || !mod) return
+    const sg = seatGroup.current
+    if (!g || !sg || !mod) return
     g.matrixAutoUpdate = false
+    sg.matrixAutoUpdate = false
+    const cam = gl.xr?.isPresenting ? gl.xr.getCamera() : camera
+    camPos.current.setFromMatrixPosition(cam.matrixWorld)
     if (seatedRef.current) {
-      const cam = gl.xr?.isPresenting ? gl.xr.getCamera() : camera
       const cp = cockpitRef.current
       const e = eyeRef.current
       const next = calib.current.tick(dt, cam.matrixWorld, g.matrixWorld, [cp[0], cp[1] - e.dy, cp[2] - e.dz], e)
@@ -170,17 +180,32 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
         setCockpit(next)
       }
     }
-    g.matrixWorldNeedsUpdate = true
-  })
+    // The host reads the seat surface after this callback (priority -2 runs
+    // before its -1 camera sync and 0 body follow); lead it by the measured
+    // residual delay so the camera lands on the cockpit (seatLead.ts).
+    const lv = lead.current.update(dt, g.matrix, cockpitRef.current, camPos.current, seatedRef.current && flyingRef.current, leadVec.current)
+    sg.matrix.copy(g.matrix)
+    sg.matrix.elements[12] += lv.x
+    sg.matrix.elements[13] += lv.y
+    sg.matrix.elements[14] += lv.z
+    g.updateMatrixWorld(true)
+    sg.updateMatrixWorld(true)
+  }, -2)
 
   useEffect(() => () => endLocalFlight(), [endLocalFlight])
 
+  const seatPos: [number, number, number] = [cockpit[0], cockpit[1] - eye.dy, cockpit[2] - eye.dz]
   return (
-    <group ref={group}>
-      <Seat id={COCKPIT_SEAT_ID} position={[cockpit[0], cockpit[1] - eye.dy, cockpit[2] - eye.dz]} exitOffset={{ forward: 0, right: -3, up: 0 }}
-        interactionText="操縦席" enabled={false} onEnter={onEnter} onLeave={onLeave} onControlInput={onControlInput}>
-        {hudOn ? (<><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands /></>) : null}
-      </Seat>
-    </group>
+    <>
+      <group ref={group}>
+        {hudOn ? (<group position={seatPos}><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands /></group>) : null}
+      </group>
+      <group ref={seatGroup}>
+        <Seat id={COCKPIT_SEAT_ID} position={seatPos} exitOffset={{ forward: 0, right: -3, up: 0 }}
+          interactionText="操縦席" enabled={false} onEnter={onEnter} onLeave={onLeave} onControlInput={onControlInput}>
+          {null}
+        </Seat>
+      </group>
+    </>
   )
 }

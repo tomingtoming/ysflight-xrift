@@ -77,6 +77,8 @@ export interface Beacon {
   vr: { active: boolean; right: { grabbed: boolean; sel: number; visible: boolean }; left: { grabbed: boolean; sel: number; visible: boolean }; keys: number; lastKey: string; ail: number; elv: number; rud: number; thr: number; ab: boolean }
   /** Seat eye calibration (src/net/seatEye.ts): hip-to-eye measured, residual after applying. */
   eye: { dx: number; dy: number; dz: number; n: number; res: number[] } | null
+  /** Seated camera lag (frames at 60 Hz, measured before the lead) and the lead applied (ms). */
+  lag: { speed: number; eFrames: number; leadMs: number } | null
 }
 
 /** Start recording beacons; returns nothing, read with lastBeacon(). */

@@ -17,6 +17,7 @@ import { ysfxStats } from '../engine/YsflightEngine'
 import { airBase, airCount, airName, readNetState, type NetState } from './netState'
 import type { NetRole } from './NetSession'
 import { eyeCalibration, type EyeReport } from './seatEye'
+import { seatLag, type LagReport } from './seatLead'
 import { saccStatus } from '../vr/saccControls'
 
 export interface YsfxBeacon {
@@ -49,6 +50,8 @@ export interface YsfxBeacon {
   kiosk: { hovers: number; lastPointer: string; ev: Record<string, number> }
   /** Ground check: camera height, the avatar's feet (host movement), and the engine's terrain under the feet. */
   ground: { cam: number; feet: number[] | null; field: number | null }
+  /** Seated camera lag along the velocity and the lead applied (seatLead.ts). */
+  lag: LagReport | null
 }
 
 const seatPos = new Map<string, number[]>()
@@ -113,6 +116,7 @@ export function StateBeacon({ role, room }: { role: NetRole | null; room: string
       ground: { cam: v.current.y, feet, field },
       vr: { ...saccStatus, right: { ...saccStatus.right }, left: { ...saccStatus.left } },
       eye: eyeCalibration(),
+      lag: seatLag(),
       cam: { pos: v.current.toArray(), quat: q.current.toArray() },
       seats: Array.from(seatPos, ([id, pos]) => ({ id, pos })),
       gfx: { vp: ysfxStats.lastVp, eye: ysfxStats.lastEye, rt: ysfxStats.rt, fb: ysfxStats.fb, buf: ysfxStats.buf },

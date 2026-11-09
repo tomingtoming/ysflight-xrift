@@ -42,14 +42,14 @@ export function RemoteAircraftSeats() {
       if (g) {
         g.matrixAutoUpdate = false
         g.matrix.fromArray(f, b + 3)
-        g.matrixWorldNeedsUpdate = true
+        g.updateMatrixWorld(true) // the host reads the seat surface after this callback
       }
     }
     if (s !== sig.current) {
       sig.current = s
       setEntries(next)
     }
-  })
+  }, -2)
 
   return (
     <>

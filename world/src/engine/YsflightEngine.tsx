@@ -137,7 +137,7 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
       key('F2', 0)
     }
     m._YsfxInterval()
-  })
+  }, -3) // before the seats (-2) and the host's camera (-1) / body (0): see net/seatLead.ts
 
   // ---- background ticks ---------------------------------------------------
   // requestAnimationFrame stops in a hidden tab, and so would the host's

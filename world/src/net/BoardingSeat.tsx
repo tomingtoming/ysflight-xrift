@@ -20,6 +20,7 @@ import { setPiloting, useEngine } from '../engine/engineStore'
 import { FlightHud } from './FlightHud'
 import { Gunsight, HudGlass } from './HudGlass'
 import { DEFAULT_EYE, EyeCalibrator, type EyeOffset } from './seatEye'
+import { SeatLead, clearSeatLag } from './seatLead'
 import { SaccHands } from '../vr/SaccHands'
 import { saccStatus } from '../vr/saccControls'
 import { publishSeat, registerSeat } from './StateBeacon'
@@ -75,7 +76,11 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
   const { localUser, remoteUsers } = useUsers()
   const gl = useThree((s) => s.gl)
   const camera = useThree((s) => s.camera)
-  const group = useRef<Group>(null)
+  const group = useRef<Group>(null) // true pose: pedestal / aircraft; HUD, gunsight, hands
+  const seatGroup = useRef<Group>(null) // the pose the host reads: true pose led by the measured delay
+  const lead = useRef(new SeatLead())
+  const leadVec = useRef(new Vector3())
+  const camPos = useRef(new Vector3())
   const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   const occupantRef = useRef<SeatOccupant | null>(null)
   const flyingRef = useRef(false) // local user's flight is active (seat rides the aircraft)
@@ -162,6 +167,7 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
       if (o.isLocalUser) {
         joinAtRef.current = clockRef.current // join now
         calib.current.reset()
+        lead.current.reset()
         publishSeat(id)
       }
     },
@@ -172,6 +178,7 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
       occupantRef.current = null
       if (o.isLocalUser) {
         publishSeat(null)
+        clearSeatLag()
         if (mod) {
           endLocalFlight()
           requestLeave(mod)
@@ -184,12 +191,15 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
   // Everything else happens per frame from the engine's state blocks.
   useFrame((_s, dt) => {
     const g = group.current
-    if (!g) return
+    const sg = seatGroup.current
+    if (!g || !sg) return
     clockRef.current += dt
     g.matrixAutoUpdate = false
+    sg.matrixAutoUpdate = false
+    const cam = gl.xr?.isPresenting ? gl.xr.getCamera() : camera
+    camPos.current.setFromMatrixPosition(cam.matrixWorld)
     const occ = occupantRef.current
     if (occ?.isLocalUser) {
-      const cam = gl.xr?.isPresenting ? gl.xr.getCamera() : camera
       const cp = cockpitRef.current
       const e = eyeRef.current
       const next = calib.current.tick(dt, cam.matrixWorld, g.matrixWorld, [cp[0], cp[1] - e.dy, cp[2] - e.dz], e)
@@ -239,23 +249,34 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
         setCockpit(next)
       }
     }
-    g.matrixWorldNeedsUpdate = true
-  })
+    // Lead the surface the host reads by the measured residual delay (seatLead.ts).
+    const lv = lead.current.update(dt, g.matrix, cockpitRef.current, camPos.current, !!occ?.isLocalUser && flyingRef.current, leadVec.current)
+    sg.matrix.copy(g.matrix)
+    sg.matrix.elements[12] += lv.x
+    sg.matrix.elements[13] += lv.y
+    sg.matrix.elements[14] += lv.z
+    g.updateMatrixWorld(true)
+    sg.updateMatrixWorld(true)
+  }, -2)
 
   useEffect(() => () => endLocalFlight(), [endLocalFlight])
 
+  const seatPos: [number, number, number] = [cockpit[0], cockpit[1] - eye.dy, cockpit[2] - eye.dz]
   return (
+    <>
     <group ref={group}>
+      {hudOn ? (<group position={seatPos}><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands /></group>) : null}
+    </group>
+    <group ref={seatGroup}>
       <Seat
         id={id}
-        position={[cockpit[0], cockpit[1] - eye.dy, cockpit[2] - eye.dz]}
+        position={seatPos}
         exitOffset={{ forward: 0, right: -3, up: 0 }}
         interactionText={`乗る: ${label ?? air}`}
         onEnter={onEnter}
         onLeave={onLeave}
         onControlInput={onControlInput}
       >
-        {hudOn ? (<><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands /></>) : null}
         {/* pedestal: the thing you aim at */}
         <mesh position={[0, -0.25, 0]}>
           <cylinderGeometry args={[0.55, 0.65, 0.4, 24]} />
@@ -272,5 +293,6 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
         </mesh>
       </Seat>
     </group>
+    </>
   )
 }

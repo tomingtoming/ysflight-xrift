@@ -68,6 +68,17 @@ test('kiosk start boards the cockpit seat, standing up leaves', async ({ page })
   await waitForBeacon(page, (b) => !!b.hud && /SPD/.test(b.hud[0]), 15_000, 'hud')
   await page.screenshot({ path: test.info().outputPath('local-kiosk-flying.png') })
 
+  // Full throttle down the runway: the seated camera must stay on the
+  // cockpit at speed.  lag.eFrames is the camera's residual lag along the
+  // velocity in frames (seatLead.ts), measured after the lead is applied.
+  for (let i = 0; i < 20; i++) await page.keyboard.press('q')
+  const fast = await waitForBeacon(page, (b) => !!b.lag && b.lag.speed > 40, 40_000, 'speed > 40 m/s')
+  console.log(`[kiosk lag:first] speed ${fast.lag!.speed.toFixed(1)} m/s, camera lag ${fast.lag!.eFrames.toFixed(2)} frames, lead ${fast.lag!.leadMs.toFixed(1)} ms`)
+  await page.waitForTimeout(1500)
+  const settled = await waitForBeacon(page, (b) => !!b.lag && b.lag.speed > 40 && Math.abs(b.lag.eFrames) < 0.3, 10_000, 'camera on the cockpit at speed')
+  console.log(`[kiosk lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, camera lag ${settled.lag!.eFrames.toFixed(2)} frames, lead ${settled.lag!.leadMs.toFixed(1)} ms`)
+  await page.screenshot({ path: test.info().outputPath('local-kiosk-fast.png') })
+
   // Space (held) is the host's leave key in the dev environment too.
   await page.keyboard.down('Space'); await page.waitForTimeout(600); await page.keyboard.up('Space')
   const left = await waitForBeacon(page, (b) => b.seat === null && !!b.net && b.net.state !== NET_FLYING, 20_000, 'left the flight')
