@@ -130,9 +130,9 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
           </Container>
         </Container>
       </Container>
-      {/* stand */}
-      <mesh position={[0, -0.75, 0]}>
-        <boxGeometry args={[0.3, 1.0, 0.3]} />
+      {/* stand: from the ground up to the panel's bottom edge */}
+      <mesh position={[0, -(H * PX) / 2 - 0.55, 0]}>
+        <boxGeometry args={[0.25, 1.1, 0.25]} />
         <meshStandardMaterial color="#555" />
       </mesh>
     </group>
