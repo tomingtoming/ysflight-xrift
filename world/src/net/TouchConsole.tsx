@@ -17,7 +17,7 @@
 import { Container, Text } from '@react-three/uikit'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useDefaultFont } from '@xrift/world-components'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Group, Vector3 } from 'three'
 import { useEngine } from '../engine/engineStore'
 import type { EyeOffset } from './seatEye'
@@ -65,6 +65,18 @@ export function TouchConsole({ eye }: { eye: EyeOffset }) {
   const pendingUp = useRef<string[]>([])
   const tmp = useRef(new Vector3())
   const positions = useRef(BUTTONS.map((b) => ({ id: `console-${b.id}`, pos: [0, 0, 0] as number[] })))
+
+  // Leaving the seat hands the throttle back to the keyboard (block [6] off)
+  // and releases anything still held.
+  const modRef = useRef(mod)
+  modRef.current = mod
+  useEffect(() => () => {
+    const m = modRef.current
+    if (!m) return
+    const c = m._FsVrControlDataPointer() >> 2
+    m.HEAPF32[c + C_THR_EVER] = 0
+    m.ccall('YsfxKeyByCode', 'number', ['string', 'number'], ['Space', 0])
+  }, [])
 
   const key = useCallback((code: string, down: boolean) => {
     mod?.ccall('YsfxKeyByCode', 'number', ['string', 'number'], [code, down ? 1 : 0])

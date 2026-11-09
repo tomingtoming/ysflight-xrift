@@ -319,10 +319,15 @@ export class SaccControls {
       f[c + C_GRABBED] = 0
       f[c + C_AIL] = 0; f[c + C_ELV] = 0; f[c + C_RUD] = 0
       f[c + C_THR_GRABBED] = 0
+      // Hand the throttle back to the keyboard (Q/A): while [6] is set the
+      // engine takes the throttle from the block every frame, so a session
+      // that once used the hands would otherwise have dead keys for good.
+      f[c + C_THR_EVER] = 0
       f[c + C_CONFIRM] = 0
     }
     this.stick.grabbed = false
     this.thr.grabbed = false
+    this.thr.ever = false
     for (const h of ['left', 'right'] as Hand[]) {
       this.sticky[h] = SaccControls.newSticky()
       this.dial[h] = SaccControls.newDial()
