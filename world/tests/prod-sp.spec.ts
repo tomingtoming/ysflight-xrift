@@ -14,9 +14,6 @@ test.skip(!HAS_AUTH, 'no tests/.auth/xrift.json -- run `npm run test:auth` once'
 const DEG_PER_PX = 0.229 // host touch-look sensitivity, measured 2026-11-09 (Pixel 7 profile)
 const JOY: [number, number] = [70, 768] // virtual joystick centre in CSS px (412x839 viewport)
 
-// LobbyKiosk geometry, as in prod-pc.spec.ts.
-const KIOSK: [number, number, number] = [-117 + 8, 1.6, 640 + 5]
-const START_BTN: [number, number, number] = [KIOSK[0] - (1700 / 2 - 28 - 160) / 1000, KIOSK[1] - (1000 / 2 - 28 - 40) / 1000, KIOSK[2]]
 
 /** Touch primitives on the phone profile; finger left turns left (yaw +), finger down pitches down. */
 async function phone(page: Page, context: BrowserContext) {
@@ -57,6 +54,7 @@ async function kioskStart(page: Page, context: BrowserContext) {
   await waitForBeacon(page, (x) => !!x.lobby && x.lobby[0] > 10, 30_000, 'kiosk lists')
   await waitForBeacon(page, (x) => !!x.cam, 20_000, 'camera')
   const ph = await phone(page, context)
+  const START_BTN = (await waitForBeacon(page, (x) => !!x.kioskBtn, 10_000, 'kiosk button position')).kioskBtn!
   const aim = await walkAndAim(page, ph.look, ph.walk, 2.4, { id: 'kiosk-start', p: START_BTN })
   console.log(`[sp kiosk aim] dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
   await page.screenshot({ path: test.info().outputPath('sp-kiosk.png') })

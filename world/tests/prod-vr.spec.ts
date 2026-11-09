@@ -19,9 +19,6 @@ import { NET_FLYING, enterWorld, lastBeacon, waitForBeacon, watchBeacon } from '
 test.skip(!HAS_AUTH, 'no tests/.auth/xrift.json -- run `npm run test:auth` once')
 test.use({ xrStereoEnabled: true })
 
-// LobbyKiosk geometry, as in prod-pc.spec.ts: the 飛行開始 button centre.
-const KIOSK: [number, number, number] = [-117 + 8, 1.6, 640 + 5]
-const START_BTN: [number, number, number] = [KIOSK[0] - (1700 / 2 - 28 - 160) / 1000, KIOSK[1] - (1000 / 2 - 28 - 40) / 1000, KIOSK[2]]
 
 type XrApi = Parameters<Parameters<typeof test>[1]>[0]['xr']
 
@@ -34,7 +31,8 @@ async function kioskStartVr(page: Page, xr: XrApi, testInfo: TestInfo) {
   await xr.enterVR({ button: process.env.YSFX_VR_BUTTON, timeout: 30_000 })
   await xr.waitForFrames(10)
 
-  const bc = await waitForBeacon(page, (x) => !!x.cam, 20_000, 'camera pose')
+  const bc = await waitForBeacon(page, (x) => !!x.cam && !!x.kioskBtn, 20_000, 'camera pose + kiosk button')
+  const START_BTN = bc.kioskBtn!
   const hp = await xr.headPose()
   const camWorld = new Matrix4().compose(new Vector3(...(bc.cam!.pos as [number, number, number])), new Quaternion(...(bc.cam!.quat as [number, number, number, number])), new Vector3(1, 1, 1))
   const headLocal = new Matrix4().compose(new Vector3(...(hp.position as [number, number, number])), new Quaternion(...(hp.quaternion as [number, number, number, number])), new Vector3(1, 1, 1))

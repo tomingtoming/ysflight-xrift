@@ -15,11 +15,8 @@ test.skip(!HAS_AUTH, 'no tests/.auth/xrift.json -- run `npm run test:auth` once'
 
 const DEG_PER_PX = 0.115 // host mouse sensitivity, measured 2026-11-09
 
-// LobbyKiosk geometry (World.tsx / LobbyKiosk.tsx): panel centre, yaw PI,
-// 1700x1000 px at 1 mm/px, 28 px padding, 飛行開始 button 320x80 at the
-// bottom-right.  Local +x maps to world -x under the yaw.
-const KIOSK: [number, number, number] = [-117 + 8, 1.6, 640 + 5]
-const START_BTN: [number, number, number] = [KIOSK[0] - (1700 / 2 - 28 - 160) / 1000, KIOSK[1] - (1000 / 2 - 28 - 40) / 1000, KIOSK[2]]
+// The kiosk's 飛行開始 button centre comes from the beacon (the kiosk is
+// placed per field, along the runway of the first start position).
 
 /** Enter the world, lock the pointer, walk to the kiosk, click 飛行開始, wait for the cockpit seat and the HUD. */
 async function kioskStart(page: Page) {
@@ -43,6 +40,7 @@ async function kioskStart(page: Page) {
     await page.waitForTimeout(350)
   }
   const walk = async (ms: number) => { await page.keyboard.down('w'); await page.waitForTimeout(ms); await page.keyboard.up('w') }
+  const START_BTN = (await waitForBeacon(page, (x) => !!x.kioskBtn, 10_000, 'kiosk button position')).kioskBtn!
   const aim = await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: START_BTN })
   console.log(`[kiosk aim] dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
   await page.screenshot({ path: test.info().outputPath('pc-kiosk.png') })
@@ -170,3 +168,48 @@ test('desktop: kiosk seat puts the eye on the cockpit point; B/F/Q/A keys; leave
   await page.keyboard.down('Space'); await page.waitForTimeout(600); await page.keyboard.up('Space')
   await waitForBeacon(page, (x) => x.seat === null, 8_000, 'left again')
 })
+
+test('desktop: the host picks another field at the kiosk; everyone restarts there and the apron moves', async ({ page }) => {
+  await watchBeacon(page)
+  await enterWorld(page, WORLD_URL)
+  const b = await waitForBeacon(page, (x) => x.role !== null && !!x.net && x.net.ready, 150_000, 'session ready')
+  test.skip(b.role !== 'host', 'another browser holds the host seat in this instance')
+  const b0 = await waitForBeacon(page, (x) => !!x.lobby && x.lobby[0] > 10 && x.field.names.length > 1 && !!x.apron && x.kioskItems.length > 0 && !!x.cam, 30_000, 'lists, fields, apron, kiosk items')
+  console.log(`[field:prod] current ${b0.field.current}, apron ${JSON.stringify(b0.apron)}`)
+  const pick = b0.field.names.find((n) => /NAHA/.test(n)) ?? b0.field.names.find((n) => n !== b0.field.current)!
+  const item = b0.kioskItems.find((i) => i.name === pick)
+  if (!item) throw new Error(`${pick} is not on the kiosk's first field page: ${b0.kioskItems.map((i) => i.name).join(' ')}`)
+
+  await page.mouse.click(640, 360)
+  await page.waitForTimeout(800)
+  const cur = { mx: 640, my: 360 }
+  const look = async (dyaw: number, dpitch: number) => {
+    const dx = -dyaw / DEG_PER_PX, dy = -dpitch / DEG_PER_PX
+    cur.mx += dx; cur.my += dy
+    await page.mouse.move(cur.mx, cur.my, { steps: Math.max(2, Math.ceil(Math.hypot(dx, dy) / 20)) })
+    await page.waitForTimeout(350)
+  }
+  const walk = async (ms: number) => { await page.keyboard.down('w'); await page.waitForTimeout(ms); await page.keyboard.up('w') }
+  const aim = await walkAndAim(page, look, walk, 2.4, { id: pick, p: item.pos })
+  console.log(`[field:prod aim] ${pick} dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
+  await page.screenshot({ path: test.info().outputPath('pc-field-pick.png') })
+  await page.mouse.click(cur.mx, cur.my)
+  const b1 = await waitForBeacon(page, (x) => x.field.current === pick && !!x.net && x.net.ready && !!x.apron && Math.hypot(x.apron.spawn[0] - b0.apron!.spawn[0], x.apron.spawn[2] - b0.apron!.spawn[2]) > 150, 150_000, 'engine restarted on the new field, apron placed')
+  console.log(`[field:prod] -> ${b1.field.current}: start positions ${b1.lobby?.[1]}, apron ${JSON.stringify(b1.apron)}`)
+  // The visitor is brought to the new apron and stands on its ground.
+  const here = await waitForBeacon(page, (x) => !!x.ground.feet && Math.hypot(x.ground.feet[0] - b1.apron!.spawn[0], x.ground.feet[2] - b1.apron!.spawn[2]) < 5 && Math.abs(x.ground.feet[1] - b1.apron!.elev) < 0.3, 20_000, 'teleported onto the new apron')
+  console.log(`[field:prod] feet ${JSON.stringify(here.ground.feet?.map((n) => +n.toFixed(2)))} engine ground ${here.ground.field}`)
+  await page.screenshot({ path: test.info().outputPath('pc-field-apron.png') })
+  // And the kiosk works there: 飛行開始 at the new field's first start position.
+  const btn = (await waitForBeacon(page, (x) => !!x.kioskBtn && Math.hypot(x.kioskBtn[0] - b1.apron!.spawn[0], x.kioskBtn[2] - b1.apron!.spawn[2]) < 30, 10_000, 'kiosk at the new apron')).kioskBtn!
+  const aim2 = await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: btn })
+  console.log(`[field:prod kiosk aim] dist ${aim2.dist.toFixed(2)} dyaw ${aim2.dyaw.toFixed(1)} dpitch ${aim2.dpitch.toFixed(1)}`)
+  await page.mouse.click(cur.mx, cur.my)
+  const seated = await waitForBeacon(page, (x) => x.seat === 'ysfx-cockpit' && !!x.net && x.net.state === NET_FLYING, 40_000, 'flying on the new field')
+  expect(seated.aircraft.some((a) => a.player && a.alive)).toBe(true)
+  await waitForBeacon(page, (x) => !!x.hud && /SPD/.test(x.hud[0]), 10_000, 'HUD')
+  await page.screenshot({ path: test.info().outputPath('pc-field-flying.png') })
+  await page.keyboard.down('Space'); await page.waitForTimeout(600); await page.keyboard.up('Space')
+  await waitForBeacon(page, (x) => x.seat === null, 8_000, 'left the seat')
+})
+

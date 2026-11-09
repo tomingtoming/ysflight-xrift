@@ -4,6 +4,7 @@
  *   window.__ysfxSit(seatId)   sit the local user on a seat
  *   window.__ysfxStand()       stand up (if the host exposes it)
  *   window.__ysfxLobbyStart(air, stp)  what the kiosk's 飛行開始 does
+ *   window.__ysfxSetField(field)  what the host's field pick does
  *   window.__ysfxHud           last HUD lines (set by FlightHud)
  * Compiled out of production bundles (import.meta.env.DEV gate at the call site).
  */
@@ -13,11 +14,12 @@ import { useEngine } from '../engine/engineStore'
 import { setKioskJoin, setPendingJoin } from './lobbyStore'
 import { NET_FLYING, readNetState, requestJoin, requestLeave, type NetState } from './netState'
 
-export function DevHooks() {
+export function DevHooks({ onField }: { onField?: (field: string) => void }) {
   const seat = useSeatContext() as unknown as Record<string, unknown>
   const mod = useEngine()
   useEffect(() => {
     const w = window as unknown as Record<string, unknown>
+    w.__ysfxSetField = (f: string) => { if (!onField) return 'not the host'; onField(f); return 'set' }
     w.__ysfxSit = (id: string) => (seat.sit as (id: string) => unknown)(id)
     w.__ysfxStand = () => {
       const f = (seat.standUp ?? seat.leave ?? seat.exit) as ((...a: unknown[]) => unknown) | undefined
@@ -40,7 +42,8 @@ export function DevHooks() {
       delete w.__ysfxLobbyStart
       delete w.__ysfxSit
       delete w.__ysfxStand
+      delete w.__ysfxSetField
     }
-  }, [seat, mod])
+  }, [seat, mod, onField])
   return null
 }

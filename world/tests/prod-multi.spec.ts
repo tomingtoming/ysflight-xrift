@@ -17,8 +17,7 @@ test.skip(!HAS_AUTH, 'no tests/.auth/xrift.json -- run `npm run test:auth` once'
 
 const AUTH = resolve(import.meta.dirname, '.auth/xrift.json')
 const DEG_PER_PX = 0.115
-const KIOSK: [number, number, number] = [-117 + 8, 1.6, 640 + 5]
-const START_BTN: [number, number, number] = [KIOSK[0] - (1700 / 2 - 28 - 160) / 1000, KIOSK[1] - (1000 / 2 - 28 - 40) / 1000, KIOSK[2]]
+// The kiosk's 飛行開始 button centre comes from the beacon (the kiosk is placed per field).
 
 async function newPilot(browser: Browser, auth: boolean): Promise<Page> {
   // The second pilot is a GUEST: the host drops the earlier connection of
@@ -78,6 +77,7 @@ async function kioskStart(page: Page) {
     await page.waitForTimeout(350)
   }
   const walk = async (ms: number) => { await page.keyboard.down('w'); await page.waitForTimeout(ms); await page.keyboard.up('w') }
+  const START_BTN = (await waitForBeacon(page, (x) => !!x.kioskBtn, 10_000, 'kiosk button position')).kioskBtn!
   const aim = await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: START_BTN })
   console.log(`[kiosk aim] dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
   await page.mouse.click(mx, my)

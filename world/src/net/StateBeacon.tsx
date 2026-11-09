@@ -41,6 +41,13 @@ export interface YsfxBeacon {
   keys: { n: number; last: string }
   /** The cockpit seat's origin in world while the local player's aircraft exists (parked or flown). */
   cockpit: number[] | null
+  /** The session's field (host's choice), the engine's field list, and the apron placed for it. */
+  field: { current: string | null; names: string[] }
+  apron: { spawn: number[]; dir: number[]; elev: number; stp: string } | null
+  /** World position of the kiosk's 飛行開始 button centre. */
+  kioskBtn: number[] | null
+  /** World centres of the kiosk's field-column items on the current page. */
+  kioskItems: Array<{ name: string; pos: number[] }>
   /** Where the last engine draw went: viewport, eye, host render target, framebuffer bound, drawing buffer. */
   gfx: { vp: number[]; eye: number; rt: null | { w: number; h: number; samples: number }; fb: boolean; buf: number[] }
   /** Engine VR control block [0..8]: stick grabbed, aileron, elevator, rudder, throttle grabbed, throttle, throttle ever, confirm, stick ever. */
@@ -96,7 +103,24 @@ export function publishHud(lines: string[] | null): void {
   hudLines = lines
 }
 
-export function StateBeacon({ role, room }: { role: NetRole | null; room: string | null }) {
+let probeBusy = false
+/** Airfield owns the ground probe while it measures the apron elevation. */
+export function setProbeBusy(b: boolean): void { probeBusy = b }
+
+let kioskBtn: number[] | null = null
+/** LobbyKiosk publishes the 飛行開始 button centre (world). */
+export function publishKioskButton(pos: number[] | null): void { kioskBtn = pos }
+let kioskItems: Array<{ name: string; pos: number[] }> = []
+/** LobbyKiosk publishes the world centres of its field-column items (current page). */
+export function publishKioskItems(items: Array<{ name: string; pos: number[] }>): void { kioskItems = items }
+let fieldNames: string[] = []
+/** LobbyKiosk publishes the engine's field list once read. */
+export function publishFields(names: string[]): void { fieldNames = names }
+let apronInfo: { spawn: number[]; dir: number[]; elev: number; stp: string } | null = null
+/** Airfield publishes where it put the apron (world) for the current field. */
+export function publishApron(a: { spawn: number[]; dir: number[]; elev: number; stp: string } | null): void { apronInfo = a }
+
+export function StateBeacon({ role, room, field }: { role: NetRole | null; room: string | null; field: string | null }) {
   const mod = useEngine()
   const gl = useThree((s) => s.gl)
   const users = useUsers() as unknown as { getLocalMovement?: () => { position?: unknown } | null }
@@ -119,18 +143,18 @@ export function StateBeacon({ role, room }: { role: NetRole | null; room: string
       if (Array.isArray(p)) feet = [p[0], p[1], p[2]]
       else if (p && typeof p === 'object') { const o = p as { x: number; y: number; z: number }; feet = [o.x, o.y, o.z] }
     } catch { feet = null }
-    let field: number | null = null
-    if (mod) {
+    let fieldElev: number | null = null
+    if (mod && !probeBusy) {
       const gp = mod._FsVrGroundProbeDataPointer() >> 2
       const px = feet ? feet[0] : v.current.x
       const pz = feet ? feet[2] : v.current.z
       mod.HEAPF32[gp] = px
       mod.HEAPF32[gp + 1] = pz
-      if (mod.HEAPF32[gp + 3] !== 0) field = mod.HEAPF32[gp + 2]
+      if (mod.HEAPF32[gp + 3] !== 0) fieldElev = mod.HEAPF32[gp + 2]
     }
     const detail: YsfxBeacon = {
       t: Date.now(), role, room, net: null, flight: null, aircraft: [], hud: hudLines, seat: localSeat, draws: ysfxStats.draws, bg: ysfxStats.bgTicks, ctl: null, lobby: lobbyCounts ? [...lobbyCounts, kioskClicks(), kioskJoinPending() ? 1 : 0] : null, kiosk: kioskHovers(),
-      ground: { cam: v.current.y, feet, field },
+      ground: { cam: v.current.y, feet, field: fieldElev },
       vr: { ...saccStatus, right: { ...saccStatus.right }, left: { ...saccStatus.left } },
       eye: eyeCalibration(),
       lag: seatLag(),
@@ -140,6 +164,10 @@ export function StateBeacon({ role, room }: { role: NetRole | null; room: string
       cam: { pos: v.current.toArray(), quat: q.current.toArray() },
       keys: { n: ysfxStats.keys, last: ysfxStats.lastKey },
       cockpit: cockpitWorld,
+      field: { current: field, names: fieldNames },
+      apron: apronInfo,
+      kioskBtn,
+      kioskItems,
       gfx: { vp: ysfxStats.lastVp, eye: ysfxStats.lastEye, rt: ysfxStats.rt, fb: ysfxStats.fb, buf: ysfxStats.buf },
     }
     if (mod) {

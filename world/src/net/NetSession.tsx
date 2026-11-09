@@ -9,7 +9,7 @@
  * state ('ysfx-net'), so no extra service is needed to agree on the host.
  */
 import { useInstanceState, useUsers } from '@xrift/world-components'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { YsflightEngine } from '../engine/YsflightEngine'
 import { pilotNameOf } from './netState'
 import { StateBeacon } from './StateBeacon'
@@ -22,6 +22,8 @@ export interface NetSessionState {
   hostNonce?: string
   room: string | null
   since: number
+  /** The field (airfield) the session flies; only the host writes it, every engine restarts on a change. */
+  field?: string
 }
 
 export const FIELD = 'ATSUGI_AIRBASE'
@@ -38,13 +40,17 @@ function makeRoom(): string {
 export type NetRole = 'host' | 'client'
 
 export interface NetSessionProps {
-  children?: (role: NetRole, pilotName: string, room: string | null) => React.ReactNode
+  /** `setField` is defined for the host only (toming's call, 2026-11-09: the host alone may change the map). */
+  children?: (role: NetRole, pilotName: string, room: string | null, field: string, setField: ((field: string) => void) | undefined) => React.ReactNode
 }
 
 export function NetSession({ children }: NetSessionProps) {
   const { localUser, remoteUsers } = useUsers()
   const [net, setNet] = useInstanceState<NetSessionState>('ysfx-net', { hostId: null, room: null, since: 0 })
   const nonce = useMemo(() => Math.random().toString(36).slice(2, 10), [])
+  // Dev environment: instance state is not shared/updated there, so the forced
+  // host keeps the field locally (the production path is the instance state).
+  const [devField, setDevField] = useState<string | undefined>(undefined)
 
   const me = localUser ?? { id: 'local', displayName: 'pilot' }
   const pilotName = useMemo(() => pilotNameOf(me), [me.id, me.displayName]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -78,14 +84,18 @@ export function NetSession({ children }: NetSessionProps) {
   } else if (net.hostId && net.room) {
     role = net.hostId === me.id && (net.hostNonce === undefined || net.hostNonce === nonce) ? 'host' : 'client'
   }
-  if (!role || !room) return <StateBeacon role={null} room={null} /> // election pending: nothing to boot yet
+  if (!role || !room) return <StateBeacon role={null} room={null} field={null} /> // election pending: nothing to boot yet
 
-  const args = role === 'host' ? ['-server', pilotName, FIELD] : ['-client', pilotName, room]
+  const field = (forced ? devField : net.field) ?? FIELD
+  const setField = role === 'host' ? (f: string) => { if (forced) setDevField(f); else setNet((prev) => ({ ...prev, field: f })) } : undefined
+  // The engine key carries the field: the server restarts on the new field
+  // and every client restarts to reconnect to it.
+  const args = role === 'host' ? ['-server', pilotName, field] : ['-client', pilotName, room]
   return (
     <>
-      <YsflightEngine key={`${role}:${room}`} args={args} signalUrl={SIGNAL_URL} roomCode={room} />
-      <StateBeacon role={role} room={room} />
-      {children?.(role, pilotName, room)}
+      <YsflightEngine key={`${role}:${room}:${field}`} args={args} signalUrl={SIGNAL_URL} roomCode={room} />
+      <StateBeacon role={role} room={room} field={field} />
+      {children?.(role, pilotName, room, field, setField)}
     </>
   )
 }

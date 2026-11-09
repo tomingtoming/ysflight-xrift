@@ -12,11 +12,12 @@
 import { Container, Text } from '@react-three/uikit'
 import { useFrame } from '@react-three/fiber'
 import { useDefaultFont } from '@xrift/world-components'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Group, Vector3 } from 'three'
 import { useEngine } from '../engine/engineStore'
-import { localSeatId, publishLobby } from './StateBeacon'
+import { localSeatId, publishFields, publishKioskButton, publishKioskItems, publishLobby } from './StateBeacon'
 import { countKioskClick, noteKioskPointer, pendingJoin, setKioskJoin, setPendingJoin } from './lobbyStore'
-import { NET_FLYING, airBase, airCount, lobbyAirNames, lobbyStpNames, lobbyStpPositions, readNetState, requestJoin, requestLeave, type NetState } from './netState'
+import { NET_FLYING, airBase, airCount, lobbyAirNames, lobbyFieldNames, lobbyStpNames, lobbyStpPositions, readNetState, requestJoin, requestLeave, type NetState } from './netState'
 import type { NetRole } from './NetSession'
 
 const PAGE = 10
@@ -31,15 +32,27 @@ export interface LobbyKioskProps {
   room: string | null
   defaultAir?: string
   defaultStp?: string
+  /** The session's field and, for the host only, how to change it (every engine restarts). */
+  field: string
+  onField?: (field: string) => void
 }
 
 const ptype = (e: unknown) => String((e as { pointerType?: string }).pointerType ?? (e as { nativeEvent?: { pointerType?: string } }).nativeEvent?.pointerType ?? '?')
 
-export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_FIGHTINGFALCON', defaultStp = 'RW01_01' }: LobbyKioskProps) {
+export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_FIGHTINGFALCON', defaultStp = 'RW01_01', field, onField }: LobbyKioskProps) {
   const mod = useEngine()
   const fontFamilies = useDefaultFont(['ja'])
+  const groupRef = useRef<Group>(null)
+  const btnWorld = useRef(new Vector3())
+  /** uikit items of the field column (uikit components are Object3Ds): their world centres go to the beacon so a harness can click one. */
+  const fieldItemRefs = useRef(new Map<string, unknown>())
+  const itemWorld = useRef(new Vector3())
   const [airs, setAirs] = useState<string[]>([])
   const [stps, setStps] = useState<string[]>([])
+  const [fields, setFields] = useState<string[]>([])
+  const [pageFld, setPageFld] = useState(0)
+  // A new engine (new field or role) refills the lists.
+  useEffect(() => { setAirs([]); setStps([]) }, [mod])
   const [selAir, setSelAir] = useState(defaultAir)
   const [selStp, setSelStp] = useState(defaultStp)
   const [pageAir, setPageAir] = useState(0)
@@ -69,11 +82,30 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
         setStps(s)
         stpPos.current = lobbyStpPositions(mod)
         publishLobby([a.length, s.length])
+        const fl = lobbyFieldNames(mod)
+        setFields(fl)
+        publishFields(fl)
         const ia = a.indexOf(selAir)
         setPageAir(ia >= 0 ? Math.floor(ia / PAGE) : 0)
-        const is = s.indexOf(selStp)
+        // Another field has other start positions: fall back to its first one.
+        const stp = s.includes(selStp) ? selStp : (s[0] ?? selStp)
+        if (stp !== selStp) setSelStp(stp)
+        const is = s.indexOf(stp)
         setPageStp(is >= 0 ? Math.floor(is / PAGE) : 0)
+        const fi = fl.indexOf(field)
+        setPageFld(fi >= 0 ? Math.floor(fi / PAGE) : 0)
       }
+    }
+    if (groupRef.current) {
+      // 飛行開始 button centre (bottom-right of the panel) in world, for the harness.
+      btnWorld.current.set((W / 2 - 28 - 160) * PX, -(H / 2 - 28 - 40) * PX, 0)
+      publishKioskButton(groupRef.current.localToWorld(btnWorld.current).toArray())
+      const items: Array<{ name: string; pos: number[] }> = []
+      fieldItemRefs.current.forEach((r, name) => {
+        const o = r as { getWorldPosition?: (v: Vector3) => Vector3 } | null
+        if (o && typeof o.getWorldPosition === 'function') items.push({ name, pos: o.getWorldPosition(itemWorld.current).toArray() })
+      })
+      publishKioskItems(items)
     }
     const ns = readNetState(mod, netRef.current)
     const seated = localSeatId() !== null
@@ -134,10 +166,15 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
   const rot = useMemo<[number, number, number]>(() => [0, yaw, 0], [yaw])
   const airPages = Math.max(1, Math.ceil(airs.length / PAGE))
   const stpPages = Math.max(1, Math.ceil(stps.length / PAGE))
+  const fldPages = Math.max(1, Math.ceil(fields.length / PAGE))
+  const chooseField = useCallback((f: string) => {
+    if (!onField || f === field) return
+    onField(f) // the host alone: every engine in the session restarts on the new field
+  }, [onField, field])
 
   const list = (
     title: string, items: string[], page: number, pages: number, sel: string,
-    onSel: (v: string) => void, onPage: (p: number) => void,
+    onSel: (v: string) => void, onPage: (p: number) => void, refs?: Map<string, unknown>,
   ) => (
     <Container flexDirection="column" flexGrow={1} flexBasis={0} gap={8}>
       <Container flexDirection="row" alignItems="center" justifyContent="space-between">
@@ -157,7 +194,8 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
       {items.slice(page * PAGE, page * PAGE + PAGE).map((name) => (
         <Container key={name} height={56} paddingX={16} justifyContent="center" borderRadius={8}
           backgroundColor={name === sel ? 0x2f6fd0 : 0x222222} hover={{ backgroundColor: name === sel ? 0x3a80e8 : 0x383838 }}
-          cursor="pointer" onClick={() => onSel(name)}>
+          cursor="pointer" onClick={() => onSel(name)}
+          ref={refs ? (r: unknown) => { if (r) refs.set(name, r); else refs.delete(name) } : undefined}>
           <Text fontSize={28} color={occupied.has(name) ? 0xff9a7a : 0xffffff} fontFamily="ja">{occupied.has(name) ? `${name}（使用中）` : name}</Text>
         </Container>
       ))}
@@ -165,14 +203,15 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
   )
 
   return (
-    <group position={position} rotation={rot}>
+    <group ref={groupRef} position={position} rotation={rot}>
       <Container sizeX={W * PX} sizeY={H * PX} pixelSize={PX} backgroundColor={0x101418} borderRadius={20} padding={28}
         flexDirection="column" gap={18} fontFamilies={fontFamilies}>
-        <Text fontSize={40} color={0xffffff} fontFamily="ja">YSFLIGHT 対戦ロビー</Text>
+        <Text fontSize={40} color={0xffffff} fontFamily="ja">{`YSFLIGHT 対戦ロビー — ${field}`}</Text>
         <Text fontSize={28} color={0xa0c8ff} fontFamily="ja">{status}</Text>
         <Container flexDirection="row" gap={28} flexGrow={1}>
           {list('機体', airs, pageAir, airPages, selAir, setSelAir, setPageAir)}
           {list('スタート地点', stps, pageStp, stpPages, selStp, setSelStp, setPageStp)}
+          {list(onField ? 'フィールド（ホスト）' : 'フィールド', fields, pageFld, fldPages, field, chooseField, setPageFld, fieldItemRefs.current)}
         </Container>
         <Container flexDirection="row" alignItems="center" justifyContent="space-between">
           <Text fontSize={30} color={0xffffff} fontFamily="ja">{`選択: ${selAir} / ${selStp}`}</Text>

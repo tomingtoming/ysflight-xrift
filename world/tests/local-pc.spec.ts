@@ -104,6 +104,16 @@ test('kiosk start boards the cockpit seat, standing up leaves', async ({ page })
   const settled = await waitForBeacon(page, (b) => !!b.lag && b.lag.speed > 40 && Math.abs(b.lag.eFrames) < 0.3, 10_000, 'camera on the cockpit at speed')
   console.log(`[kiosk lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, camera lag ${settled.lag!.eFrames.toFixed(2)} frames, lead ${settled.lag!.leadMs.toFixed(1)} ms`)
   await page.screenshot({ path: test.info().outputPath('local-kiosk-fast.png') })
+  // The aircraft rolls along the runway: its velocity direction is the apron's runway direction (World.tsx heading convention).
+  const p0 = settled.aircraft.find((a) => a.player)!.pos
+  await page.waitForTimeout(1000)
+  const b2 = (await lastBeacon(page))!
+  const p1 = b2.aircraft.find((a) => a.player)!.pos
+  const v = [p1[0] - p0[0], p1[2] - p0[2]]
+  const vl = Math.hypot(v[0], v[1])
+  const dot = (v[0] * b2.apron!.dir[0] + v[1] * b2.apron!.dir[1]) / vl
+  console.log(`[kiosk heading] velocity dir ${(v[0] / vl).toFixed(2)},${(v[1] / vl).toFixed(2)} apron dir ${b2.apron!.dir.map((n) => n.toFixed(2)).join(',')} cos ${dot.toFixed(3)}`)
+  expect(dot).toBeGreaterThan(0.98)
 
   // Space (held) is the host's leave key in the dev environment too.  The
   // aircraft stays, parked: throttle idle, brake on, still the player's.
@@ -119,3 +129,35 @@ test('kiosk start boards the cockpit seat, standing up leaves', async ({ page })
   console.log(`[kiosk again] aircraft ${airBefore} -> ${again.net!.playerAirId}, alive ${again.aircraft.filter((a) => a.alive).length}`)
   expect(again.aircraft.filter((a) => a.alive).length).toBe(1)
 })
+
+test('host changes the field: every list reloads, the apron moves, a flight starts there', async ({ page }) => {
+  await watchBeacon(page)
+  await page.goto(`http://localhost:5173/?ysfxnet=host:${ROOM}`)
+  await waitForBeacon(page, (b) => b.role === 'host' && !!b.net && b.net.ready, 90_000, 'server ready')
+  const b0 = await waitForBeacon(page, (b) => !!b.lobby && b.lobby[0] > 10 && b.field.names.length > 1 && !!b.apron, 30_000, 'lists, field names, apron')
+  console.log(`[field] current ${b0.field.current}, ${b0.field.names.length} fields: ${b0.field.names.slice(0, 8).join(' ')}…; apron ${JSON.stringify(b0.apron)}`)
+  console.log(`[field] kiosk button ${JSON.stringify(b0.kioskBtn?.map((n) => +n.toFixed(2)))}; field items ${JSON.stringify(b0.kioskItems.map((i) => [i.name, ...i.pos.map((n) => +n.toFixed(2))]))}`)
+  expect(b0.field.current).toBe('ATSUGI_AIRBASE')
+  // Atsugi's apron is where the first worlds put it by hand (spawn ahead of RW01_01, runway toward -z).
+  expect(Math.hypot(b0.apron!.spawn[0] + 117, b0.apron!.spawn[2] - 640)).toBeLessThan(6)
+  expect(Math.abs(b0.apron!.elev)).toBeLessThan(0.5)
+  const kiosk0 = b0.kioskBtn!
+
+  // A flat field other than Atsugi (identifiers from the engine's own list).
+  const pick = b0.field.names.find((n) => /HEATHROW|NAHA|KYUSYU|AOMORI/.test(n)) ?? b0.field.names.find((n) => n !== b0.field.current)!
+  const r = await page.evaluate((f) => (window as unknown as { __ysfxSetField: (f: string) => string }).__ysfxSetField(f), pick)
+  expect(r).toBe('set')
+  const b1 = await waitForBeacon(page, (b) => b.field.current === pick && !!b.net && b.net.ready && !!b.lobby && b.lobby[0] > 10 && !!b.apron && b.apron.stp !== 'RW01_01' || (b.field.current === pick && !!b.apron && Math.hypot(b.apron.spawn[0] - b0.apron!.spawn[0], b.apron.spawn[2] - b0.apron!.spawn[2]) > 150), 120_000, 'engine restarted on the new field')
+  console.log(`[field] -> ${b1.field.current}: start positions ${b1.lobby?.[1]}, apron ${JSON.stringify(b1.apron)}`)
+  expect(Math.hypot(b1.apron!.spawn[0] - b0.apron!.spawn[0], b1.apron!.spawn[2] - b0.apron!.spawn[2])).toBeGreaterThan(150)
+  const moved = await waitForBeacon(page, (b) => !!b.kioskBtn && Math.hypot(b.kioskBtn[0] - kiosk0[0], b.kioskBtn[2] - kiosk0[2]) > 150, 10_000, 'kiosk moved to the new apron')
+  console.log(`[field] kiosk ${JSON.stringify(moved.kioskBtn?.map((n) => Math.round(n)))}`)
+  // (The dev environment's teleport is a console.log stub, so the visitor's move
+  // to the new apron is asserted on the production host, prod-pc.spec.ts.)
+  // And a flight starts from the new field's first start position.
+  await page.evaluate((stp) => (window as unknown as { __ysfxLobbyStart: (a: string, s: string) => string }).__ysfxLobbyStart('F-16C_FIGHTINGFALCON', stp), b1.apron!.stp)
+  const flying = await waitForBeacon(page, (b) => b.seat === 'ysfx-cockpit' && !!b.net && b.net.state === NET_FLYING, 40_000, 'flying on the new field')
+  expect(flying.aircraft.some((a) => a.player && a.alive)).toBe(true)
+  await page.screenshot({ path: test.info().outputPath('local-field.png') })
+})
+

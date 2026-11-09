@@ -101,6 +101,16 @@ export function lobbyStpPositions(m: YsflightModule): number[][] {
     return [m.HEAPF32[b], m.HEAPF32[b + 1], m.HEAPF32[b + 2]]
   })
 }
+/** Start position headings (radians, the engine's YsAtt3 h). */
+export function lobbyStpHeadings(m: YsflightModule): number[] {
+  const n = m._FsVrLobbyStpCount()
+  return Array.from({ length: n }, (_, i) => m._FsVrLobbyStpHeading(i))
+}
+/** Every field template the engine knows (identifiers for -server / the host's chooser). */
+export function lobbyFieldNames(m: YsflightModule): string[] {
+  const n = m._FsVrLobbyFieldCount()
+  return Array.from({ length: n }, (_, i) => m.UTF8ToString(m._FsVrLobbyFieldName(i)))
+}
 /** Start positions of the loaded field (names for requestJoin). */
 export function lobbyStpNames(m: YsflightModule): string[] {
   const n = m._FsVrLobbyStpCount()

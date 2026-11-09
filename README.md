@@ -79,6 +79,13 @@ THR−/THR＋ step the throttle 10 %, A/B, GEAR, BRK, FLP DN/UP tap the engine
 keys, FIRE holds the gun for half a second; each button shows its live state.
 The panel appears on coarse-pointer devices only.
 
+The host (the lowest user id present claims the room; the kiosk's status line
+says サーバ) alone picks the field in the kiosk's third column; every engine in the
+session restarts on it, and the apron -- spawn, kiosk, cockpit seat, walkable
+ground -- is laid out along the new field's first start position.  The ground is
+flat tiles at the apron elevation, so hilly fields are not walkable away from
+the apron yet.
+
 Standing up leaves the aircraft where it is, throttle idle and brake on, with its
 exterior drawn; walk back and click the cockpit to board it again.  飛行開始 at
 the kiosk replaces a parked aircraft with the new one.
