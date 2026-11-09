@@ -18,6 +18,10 @@ npm run test:prod                  # real host: pc, sp, vr
 YSFX_HEADED=1 npm run test:local   # watch it
 ```
 
+prod-* enter the world through the host's lobby (`helpers.ts: enterWorld`): world page -> first
+instance card (or "新規作成") -> "入室する", with a fake microphone granted. `YSFX_INSTANCE_URL`
+skips the lobby. Entering takes ~10 s on a desktop profile.
+
 `tests/.auth/xrift.json` holds the logged-in session and is gitignored. Two clients on one
 machine cannot be made to connect over WebRTC here (see keel: WARP); multi-client runs need
 a second machine.

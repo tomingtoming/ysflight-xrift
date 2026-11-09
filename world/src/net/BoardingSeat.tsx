@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { setPiloting, useEngine } from '../engine/engineStore'
 import { FlightHud } from './FlightHud'
+import { publishSeat, registerSeat } from './StateBeacon'
 import {
   NET_FLYING,
   airBase,
@@ -78,6 +79,11 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
   const cockpitRef = useRef(cockpit)
   const [hudOn, setHudOn] = useState(false)
   const stickRef = useRef({ ail: 0, elv: 0, fed: false })
+
+  useEffect(() => {
+    registerSeat(id, position)
+    return () => registerSeat(id, null)
+  }, [id, position])
 
   const pedestal = useMemo(() => {
     const m = new Matrix4()
@@ -142,16 +148,22 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
   const onEnter = useCallback(
     (o: SeatOccupant) => {
       occupantRef.current = o
-      if (o.isLocalUser) joinAtRef.current = clockRef.current // join now
+      if (o.isLocalUser) {
+        joinAtRef.current = clockRef.current // join now
+        publishSeat(id)
+      }
     },
-    [],
+    [id],
   )
   const onLeave = useCallback(
     (o: SeatOccupant) => {
       occupantRef.current = null
-      if (o.isLocalUser && mod) {
-        endLocalFlight()
-        requestLeave(mod)
+      if (o.isLocalUser) {
+        publishSeat(null)
+        if (mod) {
+          endLocalFlight()
+          requestLeave(mod)
+        }
       }
     },
     [mod, endLocalFlight],

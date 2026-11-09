@@ -159,7 +159,7 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
 
 let eyeCounter = 0
 
-export const ysfxStats = { draws: 0, lastEye: -1, lastVp: [0, 0, 0, 0] as number[], keys: 0, lastKey: '', cam: [0, 0, 0] as number[], fwd: [0, 0, 0] as number[], tan: [0, 0, 0, 0] as number[] }
+export const ysfxStats = { draws: 0, lastEye: -1, lastVp: [0, 0, 0, 0] as number[], keys: 0, lastKey: '', cam: [0, 0, 0] as number[], fwd: [0, 0, 0] as number[], tan: [0, 0, 0, 0] as number[], rt: null as null | { w: number; h: number; samples: number }, fb: false, buf: [0, 0] as number[] }
 if (import.meta.env.DEV) (window as unknown as { __ysfxStats?: unknown }).__ysfxStats = ysfxStats
 
 function drawEngine(m: YsflightModule, renderer: WebGLRenderer, camera: Camera, vp: Vector4) {
@@ -213,6 +213,9 @@ function drawEngine(m: YsflightModule, renderer: WebGLRenderer, camera: Camera, 
   // redirect to the host's current target, default VAO.
   const rt = renderer.getRenderTarget()
   const fb = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null
+  ysfxStats.rt = rt ? { w: rt.width, h: rt.height, samples: rt.samples } : null
+  ysfxStats.fb = fb !== null
+  ysfxStats.buf = [gl.drawingBufferWidth, gl.drawingBufferHeight]
   const origBind = gl.bindFramebuffer
   gl.bindFramebuffer = function (target: number, framebuffer: WebGLFramebuffer | null) {
     origBind.call(gl, target, framebuffer === null ? fb : framebuffer)

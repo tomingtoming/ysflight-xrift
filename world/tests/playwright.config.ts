@@ -36,7 +36,9 @@ export default defineConfig({
     headless: process.env.YSFX_HEADED ? false : true,
     locale: 'ja-JP',
     viewport: { width: 1280, height: 720 },
-    launchOptions: { args: ['--autoplay-policy=no-user-gesture-required'] },
+    // The host asks for a microphone before "入室する": grant a fake one.
+    permissions: ['microphone'],
+    launchOptions: { args: ['--autoplay-policy=no-user-gesture-required', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] },
     trace: 'retain-on-failure',
   },
   projects: [

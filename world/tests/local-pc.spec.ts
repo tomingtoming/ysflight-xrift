@@ -40,4 +40,5 @@ test('sit on a pedestal -> join -> stick and HUD', async ({ page }) => {
   for (let i = 0; i < 20; i++) await page.keyboard.press('q')
   const moving = await waitForBeacon(page, (b) => !!b.flight && b.flight[1] * 3.6 > 5, 20_000, 'speed > 5 km/h')
   expect(moving.flight![7]).toBeGreaterThan(0.2)
+  await page.screenshot({ path: test.info().outputPath('local-pc.png') })
 })
