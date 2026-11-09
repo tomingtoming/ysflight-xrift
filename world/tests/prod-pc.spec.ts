@@ -53,6 +53,19 @@ test('desktop: walk, sit by crosshair, stick, throttle, leave', async ({ page })
   await page.keyboard.up('w')
   await waitForBeacon(page, (x) => !!x.ctl && Math.abs(x.ctl[2]) < 0.05, 10_000, 'stick released')
 
+  // Mouse stick (pointer locked): hold the left button, travel since the grab
+  // is the deflection (250 px = full); release and it springs back.
+  await page.mouse.down()
+  await page.mouse.move(mx + 150, my, { steps: 10 })
+  const ms = await waitForBeacon(page, (x) => x.mouse.grabbed && !!x.ctl && x.ctl[0] === 1 && x.ctl[1] > 0.5, 5_000, 'mouse stick: roll right')
+  await page.mouse.move(mx + 150, my - 150, { steps: 10 })
+  const mf = await waitForBeacon(page, (x) => !!x.ctl && x.ctl[2] < -0.5, 5_000, 'mouse stick: forward = nose down')
+  console.log(`[pc mouse stick] right -> ail ${ms.ctl![1].toFixed(2)}; forward -> elv ${mf.ctl![2].toFixed(2)}`)
+  await page.screenshot({ path: test.info().outputPath('pc-mouse-stick.png') })
+  await page.mouse.up()
+  await waitForBeacon(page, (x) => !x.mouse.grabbed && !!x.ctl && Math.abs(x.ctl[1]) < 0.05 && Math.abs(x.ctl[2]) < 0.05, 5_000, 'mouse stick released')
+  mx += 150; my -= 150
+
   for (let i = 0; i < 25; i++) { await page.keyboard.press('q'); await page.waitForTimeout(40) }
   const thr = await waitForBeacon(page, (x) => !!x.flight && x.flight[7] > 0.9 && x.flight[1] > 5, 15_000, 'throttle up, rolling')
   expect(thr.flight![7]).toBeGreaterThan(0.9)
