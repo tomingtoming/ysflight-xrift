@@ -16,7 +16,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { setPiloting, useEngine } from '../engine/engineStore'
 import { FlightHud } from './FlightHud'
-import { HudGlass } from './HudGlass'
+import { Gunsight, HudGlass } from './HudGlass'
 import { kioskJoinPending, setKioskJoin } from './lobbyStore'
 import { publishSeat } from './StateBeacon'
 import { NET_FLYING, airBase, findAircraftByPilot, pilotNameOf, readNetState, requestLeave, type NetState } from './netState'
@@ -162,7 +162,7 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     <group ref={group}>
       <Seat id={COCKPIT_SEAT_ID} position={cockpit} exitOffset={{ forward: 0, right: -3, up: 0 }}
         interactionText="操縦席" enabled={false} onEnter={onEnter} onLeave={onLeave} onControlInput={onControlInput}>
-        {hudOn ? (<><HudGlass position={[0, SEAT_DROP - 0.05, -1.4]} /><FlightHud render={false} /></>) : null}
+        {hudOn ? (<><HudGlass position={[0, SEAT_DROP - 0.05, -1.4]} /><Gunsight eyeHeight={SEAT_DROP - 0.05} /><FlightHud render={false} /></>) : null}
       </Seat>
     </group>
   )

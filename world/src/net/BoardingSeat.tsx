@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { setPiloting, useEngine } from '../engine/engineStore'
 import { FlightHud } from './FlightHud'
-import { HudGlass } from './HudGlass'
+import { Gunsight, HudGlass } from './HudGlass'
 import { publishSeat, registerSeat } from './StateBeacon'
 import {
   NET_FLYING,
@@ -237,7 +237,7 @@ export function BoardingSeat({ id, position, yaw = 0, air, stp, label, color = '
         onLeave={onLeave}
         onControlInput={onControlInput}
       >
-        {hudOn ? (<><HudGlass position={[0, SEAT_DROP - 0.05, -1.4]} /><FlightHud render={false} /></>) : null}
+        {hudOn ? (<><HudGlass position={[0, SEAT_DROP - 0.05, -1.4]} /><Gunsight eyeHeight={SEAT_DROP - 0.05} /><FlightHud render={false} /></>) : null}
         {/* pedestal: the thing you aim at */}
         <mesh position={[0, -0.25, 0]}>
           <cylinderGeometry args={[0.55, 0.65, 0.4, 24]} />

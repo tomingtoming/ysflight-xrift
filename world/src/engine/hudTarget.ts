@@ -72,7 +72,7 @@ export function createHudTarget(m: YsflightModule, gl: WebGL2RenderingContext): 
   f[p + 3] = HUD_W
   f[p + 4] = HUD_H
   f[p + 5] = 0
-  f[p + 6] = 0 // reticle stays baked into the flat HUD (the per-eye reticle is multiview-only)
+  f[p + 6] = 1 // no baked crosshair: the world draws a collimated gunsight (HudGlass.tsx Gunsight) at optical infinity instead
   f[p + 7] = 0
 
   const texture = new ExternalTexture(tex)
