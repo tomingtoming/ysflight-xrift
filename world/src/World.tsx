@@ -27,6 +27,7 @@ const ATSUGI: Apron = { spawn: [-117, 0, 640], dir: [0, -1], elev: 0, stp: 'RW01
 const GROUND_TILE = 400 // m; small enough that the host's character controller stands on top (see below)
 const GROUND_TILES_PER_SIDE = 5 // 2 km around the apron: flat airfields only (hilly fields want a heightfield)
 const SPAWN_AHEAD_M = 23 // the spawn stands on the runway ahead of the first start position's nose
+const KIOSK_AHEAD_M = 2.6 // the kiosk faces the visitor from inside interact range (3.5 m): no walking (toming, 2026-11-09)
 const ELEV_SAMPLES = 20
 
 function Airfield({ role, room, field, setField }: { role: NetRole; room: string | null; field: string; setField?: (f: string) => void }) {
@@ -72,14 +73,14 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
     publishApron(next)
     // Visitors who arrived before the engine knew the field stand on the old apron: bring them over.
     const movedFar = Math.hypot(next.spawn[0] - apron.spawn[0], next.spawn[2] - apron.spawn[2]) > 150
-    if (movedFar) teleport({ position: [next.spawn[0], elev + 0.5, next.spawn[2]], yaw: (Math.atan2(-next.dir[0], next.dir[1]) * 180) / Math.PI })
+    if (movedFar) teleport({ position: [next.spawn[0], elev + 0.5, next.spawn[2]], yaw: (Math.atan2(next.dir[0], -next.dir[1]) * 180) / Math.PI })
   })
 
   const [sx, , sz] = apron.spawn
   const [dx, dz] = apron.dir
   const rx = -dz, rz = dx // runway-right
-  const yaw = Math.atan2(dx, dz) // a panel's front (+z local) faces along the runway toward the spawn
-  const spawnYawDeg = (Math.atan2(-dx, dz) * 180) / Math.PI // the visitor faces back toward the aircraft
+  const yaw = Math.atan2(-dx, -dz) // the kiosk stands ahead of the spawn and faces back toward it (-d)
+  const spawnYawDeg = (Math.atan2(dx, -dz) * 180) / Math.PI // the visitor faces along the runway, at the kiosk (+d)
   const e = apron.elev
   const tiles: Array<[number, number]> = []
   const half = Math.floor(GROUND_TILES_PER_SIDE / 2)
@@ -88,7 +89,7 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
     <>
       {/* The standby screen in the world: pick an aircraft, a start position and
           (host only) the field, press 飛行開始, and the cockpit seat boards you. */}
-      <LobbyKiosk position={[sx + 8 * rx - 5 * dx, e + 1.6, sz + 8 * rz - 5 * dz]} yaw={yaw} role={role} room={room} field={field} onField={setField} defaultStp={apron.stp} />
+      <LobbyKiosk position={[sx + KIOSK_AHEAD_M * dx, e + 1.6, sz + KIOSK_AHEAD_M * dz]} yaw={yaw} role={role} room={room} field={field} onField={setField} defaultStp={apron.stp} />
       <CockpitSeat home={[sx + 6 * rx - 2 * dx, e + 0.5, sz + 6 * rz - 2 * dz]} homeYaw={yaw} />
       <RemoteAircraftSeats />
       {import.meta.env.DEV ? <DevHooks onField={setField} /> : null}

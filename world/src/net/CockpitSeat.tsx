@@ -24,7 +24,7 @@ import { FlightHud } from './FlightHud'
 import { Gunsight, HudGlass } from './HudGlass'
 import { kioskJoinPending, setKioskJoin } from './lobbyStore'
 import { DEFAULT_EYE, EyeCalibrator, type EyeOffset } from './seatEye'
-import { SeatLead, clearSeatLag } from './seatLead'
+import { SeatLead, clearSeatLag, readFeet } from './seatLead'
 import { SaccHands } from '../vr/SaccHands'
 import { TouchConsole, isCoarsePointer } from './TouchConsole'
 import { saccStatus } from '../vr/saccControls'
@@ -49,7 +49,9 @@ export interface CockpitSeatProps {
 
 export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
   const mod = useEngine()
-  const { localUser } = useUsers()
+  const users = useUsers()
+  const { localUser } = users
+  const feet = useRef(new Vector3())
   const { sit } = useSeatContext()
   const gl = useThree((s) => s.gl)
   const camera = useThree((s) => s.camera)
@@ -241,13 +243,17 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
       }
     }
     // The host reads the seat surface after this callback (priority -2 runs
-    // before its -1 camera sync and 0 body follow); lead it by the measured
-    // residual delay so the camera lands on the cockpit (seatLead.ts).
-    const lv = lead.current.update(dt, g.matrix, cockpitRef.current, camPos.current, seatedRef.current && flyingRef.current, leadVec.current)
+    // before its -1 camera sync and 0 body follow); lead the whole pose by
+    // the body's measured residual delay so the avatar sits in the cockpit
+    // and the camera agrees with the HUD (seatLead.ts).
+    const cp = cockpitRef.current, e = eyeRef.current
+    const body = readFeet(users, feet.current)
+    const ref: [number, number, number] = body ? [cp[0], cp[1] - e.dy, cp[2] - e.dz] : cp
+    const lv = lead.current.update(dt, g.matrix, ref, body ?? camPos.current, seatedRef.current && flyingRef.current, leadVec.current)
+    g.matrix.elements[12] += lv.x
+    g.matrix.elements[13] += lv.y
+    g.matrix.elements[14] += lv.z
     sg.matrix.copy(g.matrix)
-    sg.matrix.elements[12] += lv.x
-    sg.matrix.elements[13] += lv.y
-    sg.matrix.elements[14] += lv.z
     g.updateMatrixWorld(true)
     sg.updateMatrixWorld(true)
     if (airIndex >= 0) {

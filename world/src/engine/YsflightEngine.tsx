@@ -111,7 +111,13 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
       const fs = key(e.code, 1) as number
       ysfxStats.keys++
       ysfxStats.lastKey = `${e.code}->${fs}`
-      if (fs !== 0 && e.key.length === 1) mod._YsfxChar(e.key.charCodeAt(0))
+      if (fs !== 0) {
+        // A key the engine binds is the pilot's: keep the browser's default
+        // away from it (Tab moved focus and dropped the pointer lock; the
+        // afterburner lit, the mouse stick was gone -- toming, 2026-11-09).
+        e.preventDefault()
+        if (e.key.length === 1) mod._YsfxChar(e.key.charCodeAt(0))
+      }
     }
     const up = (e: KeyboardEvent) => {
       if (isTyping(e.target) || reserved(e)) return
