@@ -7,8 +7,10 @@
 import { ExternalTexture, LinearFilter, SRGBColorSpace } from 'three'
 import type { YsflightModule } from './types'
 
-export const MENU_W = 1024
-export const MENU_H = 768
+// Small on purpose: the original screen has fixed-size buttons (28 px tall), so a
+// smaller texture on the same board makes them bigger to point at (toming, 2026-11-10).
+export const MENU_W = 640
+export const MENU_H = 480
 
 interface GlTables {
   textures: (WebGLTexture | null)[]

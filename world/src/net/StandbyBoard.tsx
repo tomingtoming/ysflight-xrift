@@ -33,9 +33,9 @@ const STALE_FRAMES = 30
 const queue: Array<[number, number, number, number]> = []
 let lastX = 0, lastY = 0, held = false
 let events = 0
-/** Host dialog layout (FsGuiServerDialog at texture width 1024): button centres in texture pixels. */
-const HOST_FLY: [number, number] = [858, 107]
-const HOST_CHOOSE_AIR: [number, number] = [708, 107]
+/** Host dialog layout (FsGuiServerDialog, right-aligned in the texture): button centres in texture pixels. */
+const HOST_FLY: [number, number] = [MENU_W - 166, 107]
+const HOST_CHOOSE_AIR: [number, number] = [MENU_W - 316, 107]
 
 export function boardMouse(ev: number, x: number, y: number): void {
   lastX = x; lastY = y

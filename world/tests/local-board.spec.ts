@@ -55,7 +55,7 @@ test('original standby screen on the board: shown, choosers open, 飛行開始 b
   expect(d.lit).toBeGreaterThan(500)
 
   // 航空機選択 opens the original chooser on the same board; the field stays drawn.
-  await tap(page, 708, 107)
+  await tap(page, 324, 107)
   await page.waitForTimeout(1500)
   const c = await save('board-choose-air.png')
   await page.screenshot({ path: test.info().outputPath('board-world-choosing.png') })
@@ -70,7 +70,7 @@ test('original standby screen on the board: shown, choosers open, 飛行開始 b
   await tap(page, 24, 377)
   await page.waitForTimeout(1000)
   await save('board-after-choose.png')
-  await tap(page, 858, 107)
+  await tap(page, 474, 107)
   const flying = await waitForBeacon(page, (b) => b.seat === 'ysfx-cockpit' && !!b.net && b.net.state === NET_FLYING && b.net.playerAirId >= 0, 30_000, 'seated and flying from the board')
   const mine = flying.aircraft.find((a) => a.player && a.alive)
   console.log(`[board] flying: ${JSON.stringify(mine)}`)
