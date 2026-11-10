@@ -352,7 +352,7 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
   useEffect(() => {
     if (!mod) return
     const t = { F: new Vector3(), p: new Vector3(), q: new Quaternion(), qv: new Quaternion(), s: new Vector3(), v: new Vector3(), w: new Vector3(), rig: new Matrix4(), inv: new Matrix4(), one: new Vector3(1, 1, 1) }
-    return onBeforeEngineDraw((drawCamera) => {
+    return onBeforeEngineDraw(() => {
       const g = group.current
       const a = anchor.current
       let F: Vector3 | null = null
@@ -387,18 +387,12 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
         mod.HEAPF32[vis] = 1
         for (let i = 0; i < 16; i++) mod.HEAPF32[vis + 1 + i] = g.matrix.elements[i]
         lead.current.reportVisual(true, g.matrix)
-        // Desktop third person: the host's camera is placed from the seat
-        // itself, on time, while the avatar and (now) the aircraft ride the
-        // late, stepping body -- the camera could not keep up with them and
-        // stuttered (toming, 2026-11-10).  Move the camera by the body's
-        // own displacement for this render: it rides the body too, like the
-        // VR eye.  (matrixWorld only: the host's camera.position is its own.)
-        if (!gl.xr?.isPresenting) {
-          t.v.copy(a.seat).add(a.cal).applyMatrix4(a.trueM) // where the body would be on the true pose
-          const me = drawCamera.matrixWorld.elements
-          me[12] += F.x - t.v.x; me[13] += F.y - t.v.y; me[14] += F.z - t.v.z
-          drawCamera.matrixWorldInverse.copy(drawCamera.matrixWorld).invert()
-        }
+        // (The camera is left alone.  The only desktop view that is not first
+        // person is the host's photo camera, a free camera fixed in the world
+        // -- measured on the production host, 2026-11-10: it stays behind as
+        // the aircraft leaves.  Seen from it, the anchored aircraft and the
+        // avatar move together in the body's steps; that is the body's own
+        // motion and not ours to smooth.)
       }
       lead.current.reportAnchor(ok, trail)
     })
