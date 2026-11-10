@@ -20,7 +20,8 @@ import { BoxGeometry, Camera, Mesh, MeshBasicMaterial, Vector2, Vector4, WebGLRe
 import { controlBus } from './controlBus'
 import { frameClock, tickFrameClock } from './frameClock'
 import { createEngine } from './loadEngine'
-import { isPiloting, setEngine, setHudTexture } from './engineStore'
+import { loadStatusLine, setLoad } from './loadStore'
+import { isPiloting, runBeforeEngineDraw, setEngine, setHudTexture } from './engineStore'
 import { createHudTarget, type HudTarget } from './hudTarget'
 import { subscribeKeys } from './keyBridge'
 import type { YsflightModule } from './types'
@@ -50,7 +51,9 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
   useEffect(() => {
     let cancelled = false
     const ctx = gl.getContext() as WebGL2RenderingContext
+    setLoad('download')
     createEngine(baseUrl, {
+      setStatus: (s) => { loadStatusLine(s); if (/Running/.test(s)) setLoad('boot') },
       canvas: gl.domElement,
       preinitializedWebGLContext: ctx,
       arguments: args,
@@ -77,6 +80,7 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
         setHudTexture(hudRef.current?.texture ?? null)
         gl.resetState()
         controlBus.reset()
+        setLoad('field')
         modRef.current = m
         setMod(m)
         setEngine(m)
@@ -192,10 +196,15 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
   }, [])
 
   const tmpViewport = useMemo(() => new Vector4(), [])
+  const hookFrame = useRef(-1)
   useEffect(() => {
     hook.onBeforeRender = (renderer: WebGLRenderer, _scene, camera: Camera) => {
       const m = modRef.current
       if (!m) return
+      if (hookFrame.current !== frameClock.frame) { // first camera of the frame only
+        hookFrame.current = frameClock.frame
+        runBeforeEngineDraw()
+      }
       drawEngine(m, renderer, camera, tmpViewport)
     }
     return () => {

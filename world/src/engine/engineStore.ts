@@ -33,6 +33,18 @@ export function useEngine(): YsflightModule | null {
   return useSyncExternalStore(subscribe, getEngine, getEngine)
 }
 
+// ---- render-time hook ------------------------------------------------------
+// Runs once per frame at the start of rendering (the engine's draw hook is the
+// first object three.js renders), after every frame callback of the host has
+// placed the player's body and camera.  The only moment the pose the eye will
+// actually be drawn from can be read (net/CockpitSeat.tsx anchors to it).
+const beforeDraw = new Set<() => void>()
+export function onBeforeEngineDraw(fn: () => void): () => void {
+  beforeDraw.add(fn)
+  return () => { beforeDraw.delete(fn) }
+}
+export function runBeforeEngineDraw(): void { beforeDraw.forEach((f) => f()) }
+
 // ---- piloting gate -------------------------------------------------------
 // Keyboard input is forwarded to the engine only while the local user sits
 // in the cockpit seat.  Observed on the production host (2026-11-08): keys

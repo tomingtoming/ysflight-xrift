@@ -59,6 +59,7 @@ export interface YsflightModuleOptions {
   preinitializedWebGLContext: WebGL2RenderingContext
   locateFile: (path: string) => string
   arguments: string[]
+  setStatus?: (text: string) => void
   print?: (s: string) => void
   printErr?: (s: string) => void
   onAbort?: (what: unknown) => void

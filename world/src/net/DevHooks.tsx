@@ -26,7 +26,7 @@ export function DevHooks({ onField }: { onField?: (field: string) => void }) {
     // the lag measurement and the delayed visuals have something to work on.
     const q = /[?&]bodylag=(\d+)/.exec(location.search)
     setDevBodyLag(q ? Number(q[1]) : 1, /[?&]forcedelay=1/.test(location.search))
-    w.__ysfxBodyLag = (frames: number, forceDelay = false) => { setDevBodyLag(frames, forceDelay); return 'set' }
+    w.__ysfxBodyLag = (frames: number, forceDelay = false, stepHz = 0) => { setDevBodyLag(frames, forceDelay, stepHz); return 'set' }
     w.__ysfxSetField = (f: string) => { if (!onField) return 'not the host'; onField(f); return 'set' }
     w.__ysfxSit = (id: string) => (seat.sit as (id: string) => unknown)(id)
     w.__ysfxStand = () => {

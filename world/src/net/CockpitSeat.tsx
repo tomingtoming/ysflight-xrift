@@ -17,7 +17,7 @@ import { Seat, useSeatContext, useUsers } from '@xrift/world-components'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { controlBus } from '../engine/controlBus'
-import { setPiloting, useEngine } from '../engine/engineStore'
+import { onBeforeEngineDraw, setPiloting, useEngine } from '../engine/engineStore'
 import { frameClock } from '../engine/frameClock'
 import { isKeyDown } from '../engine/keyBridge'
 import { mouseStick, setMouseStickEnabled } from '../engine/mouseStick'
@@ -26,7 +26,7 @@ import { FlightHud } from './FlightHud'
 import { Gunsight, HudGlass } from './HudGlass'
 import { kioskJoinPending, setKioskJoin } from './lobbyStore'
 import { DEFAULT_EYE, EyeCalibrator, type EyeOffset } from './seatEye'
-import { PoseHistory, SeatLead, clearSeatLag, devForceDelay, readFeet } from './seatLead'
+import { PoseHistory, SeatLead, clearSeatLag, devForceDelay, readFeet, readFeetAtRender } from './seatLead'
 import { SaccHands } from '../vr/SaccHands'
 import { TouchConsole, isCoarsePointer } from './TouchConsole'
 import { saccStatus } from '../vr/saccControls'
@@ -37,6 +37,7 @@ interface SeatOccupant { id: string; isLocalUser: boolean }
 interface SeatControlInput { forward: number; right: number }
 
 const STICK_RATE = 2.5
+const ANCHOR_CAL_MAX_SPEED = 3 // m/s: below this the body sits where the seat puts it, and its offset can be learnt
 export const COCKPIT_SEAT_ID = 'ysfx-cockpit'
 
 export interface CockpitSeatProps {
@@ -58,6 +59,7 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
   const lead = useRef(new SeatLead())
   const history = useRef(new PoseHistory())
   const eyeTmp = useRef(new Vector3())
+  const anchor = useRef({ active: false, mode: false, calN: 0, cal: new Vector3(), seat: new Vector3(), trueM: new Matrix4() })
   const camPos = useRef(new Vector3())
   const mouseWas = useRef(false)
   const mouseOwner = useRef(false)
@@ -137,6 +139,7 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     calib.current.reset()
     lead.current.reset()
     history.current.reset()
+    anchor.current.calN = 0
     publishSeat(COCKPIT_SEAT_ID)
     // Boarding again: hand the throttle back to the keys (parkAircraft set the block).
     controlBus.throttleToKeys()
@@ -246,6 +249,11 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     const active = seatedRef.current && flyingRef.current
     lead.current.update(dt, g.matrix, ref, body ?? camPos.current, active)
     sg.matrix.copy(g.matrix)
+    const an = anchor.current
+    an.trueM.copy(g.matrix)
+    an.seat.set(cp[0], cp[1] - e.dy, cp[2] - e.dz)
+    an.active = active
+    an.mode = active && (!!gl.xr?.isPresenting || !firstPerson || devForceDelay())
     const now = frameClock.nowMs / 1000
     history.current.push(now, g.matrix)
     const delay = active && (gl.xr?.isPresenting || !firstPerson || devForceDelay()) ? lead.current.lag : 0
@@ -259,9 +267,67 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     sg.updateMatrixWorld(true)
     if (airIndex >= 0) {
       const cp = cockpitRef.current, e = eyeRef.current
-      publishCockpit(seatWorld.current.set(cp[0], cp[1] - e.dy, cp[2] - e.dz).applyMatrix4(g.matrixWorld).toArray())
+      publishCockpit(seatWorld.current.set(cp[0], cp[1] - e.dy, cp[2] - e.dz).applyMatrix4(sg.matrixWorld).toArray())
     } else publishCockpit(null)
   }, -2)
+
+  // ---- render time: anchor what the eye sees to where the body really is ----
+  // The delay above assumes a body a steady `lag` behind.  The host's body is
+  // a kinematic rigid body that moves when physics steps, at physics' own
+  // rate: on a 72/90/120 Hz display some frames have no step and the body --
+  // with the VR eye and the third-person avatar on it -- advances in stairs,
+  // a physics step of travel at a time.  Against that, a smoothly delayed
+  // cockpit and HUD slide back and forth ("the HUD moves violently fore and
+  // aft" in VR, third person still shaking; toming, 2026-11-10).
+  // So do not model the body: read it.  This runs after every host callback
+  // of the frame, right before the first draw.  The follower (the XR rig in
+  // VR, the body's feet otherwise) has a fixed offset from the seat origin in
+  // the aircraft frame, learnt while the aircraft stands; at speed the HUD
+  // group and the engine's drawn own aircraft are moved so that offset holds
+  // exactly, whatever the body did this frame.  Attitude keeps the delayed
+  // sample (a step of rotation is small).
+  useEffect(() => {
+    if (!mod) return
+    const t = { F: new Vector3(), p: new Vector3(), q: new Quaternion(), qv: new Quaternion(), s: new Vector3(), v: new Vector3(), w: new Vector3(), rig: new Matrix4(), inv: new Matrix4(), one: new Vector3(1, 1, 1) }
+    return onBeforeEngineDraw(() => {
+      const g = group.current
+      const a = anchor.current
+      let F: Vector3 | null = null
+      if (gl.xr?.isPresenting) {
+        const frame = gl.xr.getFrame?.() as XRFrame | null
+        const space = gl.xr.getReferenceSpace?.()
+        const vp = frame && space ? frame.getViewerPose(space) : null
+        if (vp) {
+          t.inv.fromArray(vp.transform.inverse.matrix)
+          t.rig.copy(gl.xr.getCamera().matrixWorld).multiply(t.inv) // reference space -> world: what the eye rides
+          F = t.F.setFromMatrixPosition(t.rig)
+        }
+      } else F = readFeetAtRender(users, t.F) // also advances the dev stand-in, seated or not
+      if (!g || !F || !a.active) return
+      a.trueM.decompose(t.p, t.q, t.s)
+      t.v.copy(a.seat).applyMatrix4(a.trueM) // seat origin, world, true pose
+      const speed = lead.current.speed
+      if (speed < ANCHOR_CAL_MAX_SPEED) {
+        t.w.subVectors(F, t.v).applyQuaternion(t.qv.copy(t.q).invert())
+        if (a.calN === 0) a.cal.copy(t.w); else a.cal.lerp(t.w, 0.1)
+        a.calN++
+      }
+      t.w.copy(a.seat).add(a.cal) // the follower's place in the aircraft frame
+      const trail = t.v.copy(t.w).applyMatrix4(a.trueM).distanceTo(F)
+      const ok = a.mode && a.calN >= 10 && trail < Math.max(1, speed * 0.25)
+      if (ok) {
+        g.matrix.decompose(t.p, t.qv, t.s) // the attitude the visuals already have
+        t.p.copy(F).sub(t.w.applyQuaternion(t.qv))
+        g.matrix.compose(t.p, t.qv, t.one)
+        g.updateMatrixWorld(true)
+        const vis = mod._FsVrPlayerVisualDataPointer() >> 2
+        mod.HEAPF32[vis] = 1
+        for (let i = 0; i < 16; i++) mod.HEAPF32[vis + 1 + i] = g.matrix.elements[i]
+        lead.current.reportVisual(true, g.matrix)
+      }
+      lead.current.reportAnchor(ok, trail)
+    })
+  }, [mod, gl, users])
 
   useEffect(() => () => endLocalFlight(), [endLocalFlight])
 

@@ -3,6 +3,8 @@ import { CuboidCollider, RigidBody } from '@react-three/rapier'
 import { useFrame } from '@react-three/fiber'
 import { useEffect, useRef, useState } from 'react'
 import { useEngine } from './engine/engineStore'
+import { setLoad } from './engine/loadStore'
+import { LoadingPanel } from './net/LoadingPanel'
 import { CockpitSeat } from './net/CockpitSeat'
 import { LobbyKiosk } from './net/LobbyKiosk'
 import { NetSession, type NetRole } from './net/NetSession'
@@ -32,6 +34,7 @@ const ATSUGI: Apron = { spawn: [-113.006, 0, 640.549], dir: [0.17365, -0.98481],
 const GROUND_TILE = 400 // m; small enough that the host's character controller stands on top (see below)
 const GROUND_TILES_PER_SIDE = 5 // 2 km around the apron: flat airfields only (hilly fields want a heightfield)
 const SPAWN_AHEAD_M = 23 // the spawn stands on the runway ahead of the first start position's nose
+const LOADING_AHEAD_M = 2.0 // the loading panel stands in front of the kiosk and hides it until the field is ready
 const KIOSK_AHEAD_M = 2.6 // the kiosk faces the visitor from inside interact range (3.5 m): no walking (toming, 2026-11-09)
 const ELEV_SAMPLES = 20
 
@@ -74,6 +77,7 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
     const next: Apron = { ...pending.current, spawn: [sp[0], elev, sp[2]], elev }
     done.current = true
     setProbeBusy(false)
+    setLoad('ready')
     setApron(next)
     publishApron(next)
     // Visitors who arrived before the engine knew the field stand on the old apron: bring them over.
@@ -95,6 +99,7 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
       {/* The standby screen in the world: pick an aircraft, a start position and
           (host only) the field, press 飛行開始, and the cockpit seat boards you. */}
       <LobbyKiosk position={[sx + KIOSK_AHEAD_M * dx, e + 1.6, sz + KIOSK_AHEAD_M * dz]} yaw={yaw} role={role} room={room} field={field} onField={setField} defaultStp={apron.stp} />
+      <LoadingPanel position={[sx + LOADING_AHEAD_M * dx, e + 1.6, sz + LOADING_AHEAD_M * dz]} yaw={yaw} field={field} />
       <CockpitSeat home={[sx + 6 * rx - 2 * dx, e + 0.5, sz + 6 * rz - 2 * dz]} homeYaw={yaw} />
       <RemoteAircraftSeats />
       {import.meta.env.DEV ? <DevHooks onField={setField} /> : null}

@@ -139,6 +139,23 @@ test('kiosk start boards the cockpit seat, standing up leaves', async ({ page })
   const want = (delayed.lag!.lagMs / 1000) * delayed.lag!.speed
   console.log(`[kiosk delayed] visual ${delayed.lag!.visBehindM.toFixed(2)} m behind the simulated pose, body lag ${want.toFixed(2)} m at ${delayed.lag!.speed.toFixed(0)} m/s, shake ${delayed.lag!.shakeCm.toFixed(1)} cm`)
   expect(Math.abs(delayed.lag!.visBehindM - want)).toBeLessThan(0.15)
+  expect(delayed.lag!.anchored).toBe(true)
+  // A display faster than physics (here 60 Hz frames, 40 Hz steps): the body
+  // advances in stairs.  The visuals are anchored to it at render time, so
+  // they sit on the body every frame however far it wanders.
+  await page.evaluate(() => (window as unknown as { __ysfxBodyLag: (n: number, f: boolean, hz: number) => string }).__ysfxBodyLag(1, true, 40))
+  await page.waitForTimeout(1500)
+  let worst = 0
+  for (let i = 0; i < 10; i++) {
+    const s = (await lastBeacon(page))!.lag!
+    expect(s.anchored).toBe(true)
+    worst = Math.max(worst, Math.abs(s.visBehindM - s.trailM))
+    await page.waitForTimeout(110)
+  }
+  const stair = (await lastBeacon(page))!.lag!
+  console.log(`[kiosk stairs] body wanders ${stair.trailShakeCm.toFixed(0)} cm RMS around ${stair.trailM.toFixed(2)} m behind at ${stair.speed.toFixed(0)} m/s; visual off the body by at most ${(worst * 100).toFixed(1)} cm`)
+  expect(stair.trailShakeCm).toBeGreaterThan(10)
+  expect(worst).toBeLessThan(0.05)
   await page.evaluate(() => (window as unknown as { __ysfxBodyLag: (n: number, f: boolean) => string }).__ysfxBodyLag(1, false))
   await page.screenshot({ path: test.info().outputPath('local-kiosk-fast.png') })
   // The aircraft rolls along the runway: its velocity direction is the apron's runway direction (World.tsx heading convention).
@@ -198,3 +215,18 @@ test('host changes the field: every list reloads, the apron moves, a flight star
   await page.screenshot({ path: test.info().outputPath('local-field.png') })
 })
 
+
+test('loading panel: shown while the engine loads, gone when the field is ready', async ({ page }) => {
+  // Slow the 24 MB data package down so the download stage is there to see.
+  await page.route('**/ysflight32_gl2.data', async (route) => { await new Promise((r) => setTimeout(r, 2500)); await route.continue() })
+  await watchBeacon(page)
+  await page.goto(`http://localhost:5173/?ysfxnet=host:${ROOM}`)
+  const loading = await waitForBeacon(page, (b) => !!b.load && b.load.stage !== 'ready', 20_000, 'loading stage reported')
+  await page.waitForTimeout(800)
+  await page.screenshot({ path: test.info().outputPath('loading-panel.png') })
+  console.log(`[loading] first stage ${loading.load!.stage}`)
+  const ready = await waitForBeacon(page, (b) => !!b.load && b.load.stage === 'ready' && !!b.apron, 60_000, 'field ready')
+  expect(ready.net!.ready).toBe(true)
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: test.info().outputPath('loading-done.png') })
+})

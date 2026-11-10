@@ -51,22 +51,33 @@ const SETTLE_S = 0.5
 const HISTORY = 16
 const ONE = new Vector3(1, 1, 1)
 
-export interface LagReport { speed: number; eFrames: number; lagMs: number; dtMs: number; jitterCm: number; shakeCm: number; visOn: boolean; visBehindM: number }
+export interface LagReport { speed: number; eFrames: number; lagMs: number; dtMs: number; jitterCm: number; shakeCm: number; visOn: boolean; visBehindM: number; anchored: boolean; trailM: number; trailShakeCm: number }
 let lastLag: LagReport | null = null
 /** The seated local user's lag measurement, for the beacon. */
 export function seatLag(): LagReport | null { return lastLag }
 export function clearSeatLag(): void { lastLag = null }
 
 // ---- dev stand-in for the production host's late body ----------------------
+// The production body is a kinematic rigid body: the pose handed in frame F
+// becomes its position at the next physics step, and physics steps at its
+// own fixed rate.  At a display rate above it (72/90/120 Hz against 60) some
+// frames have no step at all: the body, and a VR eye riding it, advances in
+// stairs.  `stepHz` reproduces that (0 = one step every frame).
 let devLagFrames = 0
 let devForce = false
-let devFrame = -1
-const devRing: Vector3[] = []
-/** Dev only: answer `readFeet` this many frames late; optionally delay the visuals as VR / third person would. */
-export function setDevBodyLag(frames: number, forceDelay = false): void {
+let devStepHz = 0
+let devAcc = 0
+let devRenderFrame = -1
+let devHave = 0
+const devBody = new Vector3()
+const devPending = new Vector3()
+/** Dev only: land the body late (frames 0 = off, else one physics step), optionally anchor as VR / third person would, optionally step physics at `stepHz`. */
+export function setDevBodyLag(frames: number, forceDelay = false, stepHz = 0): void {
   devLagFrames = Math.max(0, Math.floor(frames))
   devForce = forceDelay
-  devRing.length = 0
+  devStepHz = Math.max(0, stepHz)
+  devAcc = 0
+  devHave = 0
 }
 /** Dev only: treat the desktop first-person view as one whose eye rides the body. */
 export function devForceDelay(): boolean { return devForce }
@@ -85,12 +96,31 @@ function readFeetNow(users: unknown, out: Vector3): Vector3 | null {
 export function readFeet(users: unknown, out: Vector3): Vector3 | null {
   const now = readFeetNow(users, out)
   if (!now || devLagFrames === 0) return now
-  if (devFrame !== frameClock.frame) { // once per frame, however many callers
-    devFrame = frameClock.frame
-    devRing.push(now.clone())
-    while (devRing.length > devLagFrames + 1) devRing.shift()
+  return devHave === 2 ? out.copy(devBody) : now
+}
+
+/**
+ * The body position this frame will be RENDERED with: call from the
+ * render-time hook (engineStore onBeforeEngineDraw), after the host's frame
+ * callbacks.  On the production host this is simply the current value; the dev
+ * stand-in advances its late, stepped body here.
+ */
+export function readFeetAtRender(users: unknown, out: Vector3): Vector3 | null {
+  const now = readFeetNow(users, out)
+  if (!now || devLagFrames === 0) return now
+  if (devRenderFrame !== frameClock.frame) { // once per frame
+    devRenderFrame = frameClock.frame
+    let step = true
+    if (devStepHz > 0) {
+      devAcc += frameClock.dt * devStepHz
+      step = devAcc >= 1
+      if (step) devAcc = Math.min(devAcc - 1, 1)
+    }
+    if (step && devHave >= 1) { devBody.copy(devPending); devHave = 2 }
+    devPending.copy(now)
+    if (devHave < 1) devHave = 1
   }
-  return out.copy(devRing[0])
+  return devHave === 2 ? out.copy(devBody) : now
 }
 
 /** The last few true poses, sampled back in time (position lerp, attitude slerp). */
@@ -162,6 +192,10 @@ export class SeatLead {
   private shake2 = 0
   private visOn = false
   private visBehind = 0
+  private anchored = false
+  private trail = 0
+  private trailAvg = 0
+  private trailVar = 0
 
   reset(): void {
     this.havePrev = false
@@ -174,6 +208,28 @@ export class SeatLead {
     this.shake2 = 0
     this.visOn = false
     this.visBehind = 0
+    this.anchored = false
+    this.trail = 0
+    this.trailAvg = 0
+    this.trailVar = 0
+  }
+
+  /**
+   * Render time: how far the body really is from where the true pose would
+   * have it (`trail`, m), and whether the visuals were anchored to it.  The
+   * RMS of the trail's frame-to-frame wander (`trailShakeCm`) is the judder a
+   * time-delayed visual cannot follow: zero for a body exactly one frame
+   * late, a physics step of travel for one that moves in stairs.
+   */
+  reportAnchor(anchored: boolean, trail: number): void {
+    this.anchored = anchored
+    this.trail = trail
+    if (this.speed > MIN_SPEED) {
+      this.trailAvg += (trail - this.trailAvg) * 0.1
+      const dev = trail - this.trailAvg
+      this.trailVar += (dev * dev - this.trailVar) * 0.1
+    }
+    if (lastLag) { lastLag.anchored = anchored; lastLag.trailM = trail; lastLag.trailShakeCm = Math.sqrt(this.trailVar) * 100 }
   }
 
   /** What was handed to the eye this frame: the delayed pose (or the true one, `on` false). */
@@ -217,6 +273,6 @@ export class SeatLead {
     }
     this.eyePrev.copy(this.eye)
     this.haveEye = true
-    if (active) lastLag = { speed: this.speed, eFrames: this.eFrames, lagMs: this.lag * 1000, dtMs: this.dtAvg * 1000, jitterCm: this.jitter * 100, shakeCm: Math.sqrt(this.shake2) * 100, visOn: this.visOn, visBehindM: this.visBehind }
+    if (active) lastLag = { speed: this.speed, eFrames: this.eFrames, lagMs: this.lag * 1000, dtMs: this.dtAvg * 1000, jitterCm: this.jitter * 100, shakeCm: Math.sqrt(this.shake2) * 100, visOn: this.visOn, visBehindM: this.visBehind, anchored: this.anchored, trailM: this.trail, trailShakeCm: Math.sqrt(this.trailVar) * 100 }
   }
 }

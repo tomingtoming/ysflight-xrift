@@ -19,6 +19,7 @@ import type { NetRole } from './NetSession'
 import { eyeCalibration, type EyeReport } from './seatEye'
 import { readFeet, seatLag, type LagReport } from './seatLead'
 import { controlBus } from '../engine/controlBus'
+import { loadState } from '../engine/loadStore'
 import { engineBuildId } from '../engine/loadEngine'
 import { saccStatus } from '../vr/saccControls'
 import { mouseStick } from '../engine/mouseStick'
@@ -55,6 +56,7 @@ export interface YsfxBeacon {
   /** Engine VR control block [0..8]: stick grabbed, aileron, elevator, rudder, throttle grabbed, throttle, throttle ever, confirm, stick ever. */
   ctl: number[] | null
   ctlOwner?: string | null
+  load?: { stage: string; progress: number | null }
   engine?: string | null
   /** SaccFlight-style hand controls (vr/saccControls.ts) while presenting and seated. */
   vr: typeof saccStatus
@@ -158,6 +160,7 @@ export function StateBeacon({ role, room, field }: { role: NetRole | null; room:
       vr: { ...saccStatus, right: { ...saccStatus.right }, left: { ...saccStatus.left } },
       eye: eyeCalibration(),
       lag: seatLag(),
+      load: loadState(),
       console: consoleButtons,
       mouse: { ...mouseStick },
       gates: { coarse: isCoarsePointer(), xr: !!gl.xr?.isPresenting },

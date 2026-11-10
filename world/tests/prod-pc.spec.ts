@@ -97,7 +97,7 @@ test('desktop: kiosk 飛行開始, W/S and mouse stick, Q/A throttle, camera at 
   console.log(`[pc lag:first] speed ${fast.lag!.speed.toFixed(1)} m/s, residual ${fast.lag!.eFrames.toFixed(2)} frames, body lag ${fast.lag!.lagMs.toFixed(1)} ms (frame ${fast.lag!.dtMs.toFixed(1)} ms)`)
   await page.waitForTimeout(1500)
   const settled = await waitForBeacon(page, (x) => !!x.lag && x.lag.speed > 40 && Math.abs(x.lag.eFrames) < 0.3, 10_000, 'camera on the cockpit at speed')
-  console.log(`[pc lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, residual ${settled.lag!.eFrames.toFixed(2)} frames, body lag ${settled.lag!.lagMs.toFixed(1)} ms, travel jitter ${settled.lag!.jitterCm.toFixed(1)} cm/frame, body-vs-visual shake ${settled.lag!.shakeCm.toFixed(1)} cm; engine ${settled.engine}`)
+  console.log(`[pc lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, residual ${settled.lag!.eFrames.toFixed(2)} frames, body lag ${settled.lag!.lagMs.toFixed(1)} ms, travel jitter ${settled.lag!.jitterCm.toFixed(1)} cm/frame, body-vs-visual shake ${settled.lag!.shakeCm.toFixed(1)} cm, anchored ${settled.lag!.anchored}, body trail ${settled.lag!.trailM.toFixed(2)} m wandering ${settled.lag!.trailShakeCm.toFixed(1)} cm RMS; engine ${settled.engine}`)
   // Desktop first person: the beacon's `cockpit` is the true seat (no visual
   // delay) and the avatar's body trails it by its measured lag x speed; the
   // residual eFrames above is what the visuals are matched to (seatLead.ts).

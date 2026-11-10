@@ -156,7 +156,7 @@ test('VR: kiosk 飛行開始 by controller ray, then fly by SaccFlight-style han
   console.log(`[vr lag:first] speed ${fast.lag!.speed.toFixed(1)} m/s, residual ${fast.lag!.eFrames.toFixed(2)} frames, body lag ${fast.lag!.lagMs.toFixed(1)} ms (frame ${fast.lag!.dtMs.toFixed(1)} ms)`)
   await xr.waitForFrames(90)
   const settled = await waitForBeacon(page, (x) => !!x.lag && x.lag.speed > 40 && Math.abs(x.lag.eFrames) < 0.3, 10_000, 'rig on the cockpit at speed')
-  console.log(`[vr lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, residual ${settled.lag!.eFrames.toFixed(2)} frames, body lag ${settled.lag!.lagMs.toFixed(1)} ms, travel jitter ${settled.lag!.jitterCm.toFixed(1)} cm/frame, body-vs-visual shake ${settled.lag!.shakeCm.toFixed(1)} cm; engine ${settled.engine}`)
+  console.log(`[vr lag:settled] speed ${settled.lag!.speed.toFixed(1)} m/s, residual ${settled.lag!.eFrames.toFixed(2)} frames, body lag ${settled.lag!.lagMs.toFixed(1)} ms, travel jitter ${settled.lag!.jitterCm.toFixed(1)} cm/frame, body-vs-visual shake ${settled.lag!.shakeCm.toFixed(1)} cm, anchored ${settled.lag!.anchored}, body trail ${settled.lag!.trailM.toFixed(2)} m wandering ${settled.lag!.trailShakeCm.toFixed(1)} cm RMS; engine ${settled.engine}`)
   await xr.attachCapture(testInfo, 'vr-fast')
 
   // Function dial: pull the right thumbstick to 240 deg (sector 4 = Brake),

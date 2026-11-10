@@ -83,11 +83,13 @@ export interface Beacon {
   /** Seat eye calibration (src/net/seatEye.ts): hip-to-eye measured, residual after applying. */
   eye: { dx: number; dy: number; dz: number; n: number; res: number[] } | null
   /** Seated body lag: residual vs the delayed visual (frames), the body lag the visuals are delayed by (ms), frame time (ms). */
-  lag: { speed: number; eFrames: number; lagMs: number; dtMs: number; jitterCm: number; shakeCm: number; visOn: boolean; visBehindM: number } | null
+  lag: { speed: number; eFrames: number; lagMs: number; dtMs: number; jitterCm: number; shakeCm: number; visOn: boolean; visBehindM: number; anchored: boolean; trailM: number; trailShakeCm: number } | null
   /** Fork commit the engine binary was built from (engine/build.sh). */
   engine?: string | null
   /** Which source held the stick at the last control flush (engine/controlBus.ts). */
   ctlOwner?: string | null
+  /** Engine loading stage (engine/loadStore.ts): download | boot | field | ready. */
+  load?: { stage: string; progress: number | null }
   console: Array<{ id: string; pos: number[] }> | null
   mouse: { enabled: boolean; grabbed: boolean; ail: number; elv: number; grabs: number }
   gates: { coarse: boolean; xr: boolean }
