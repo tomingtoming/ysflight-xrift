@@ -57,6 +57,8 @@ export interface YsfxBeacon {
   ctl: number[] | null
   ctlOwner?: string | null
   load?: { stage: string; progress: number | null }
+  /** The engine's main-window view mode (FSCOCKPITVIEW = 0). */
+  view?: number
   engine?: string | null
   /** SaccFlight-style hand controls (vr/saccControls.ts) while presenting and seated. */
   vr: typeof saccStatus
@@ -182,6 +184,7 @@ export function StateBeacon({ role, room, field }: { role: NetRole | null; room:
       detail.ctl = Array.from(f.subarray(c, c + 12))
       detail.ctlOwner = controlBus.owner()
       detail.engine = engineBuildId()
+      detail.view = f[(mod._FsVrExternalViewDataPointer() >> 2) + 3]
       const n = airCount(mod)
       for (let i = 0; i < n; i++) {
         const b = airBase(mod, i)

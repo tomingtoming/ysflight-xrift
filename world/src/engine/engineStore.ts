@@ -38,12 +38,13 @@ export function useEngine(): YsflightModule | null {
 // first object three.js renders), after every frame callback of the host has
 // placed the player's body and camera.  The only moment the pose the eye will
 // actually be drawn from can be read (net/CockpitSeat.tsx anchors to it).
-const beforeDraw = new Set<() => void>()
-export function onBeforeEngineDraw(fn: () => void): () => void {
+import type { Camera } from 'three'
+const beforeDraw = new Set<(camera: Camera) => void>()
+export function onBeforeEngineDraw(fn: (camera: Camera) => void): () => void {
   beforeDraw.add(fn)
   return () => { beforeDraw.delete(fn) }
 }
-export function runBeforeEngineDraw(): void { beforeDraw.forEach((f) => f()) }
+export function runBeforeEngineDraw(camera: Camera): void { beforeDraw.forEach((f) => f(camera)) }
 
 // ---- piloting gate -------------------------------------------------------
 // Keyboard input is forwarded to the engine only while the local user sits

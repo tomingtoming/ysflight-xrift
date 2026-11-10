@@ -235,3 +235,27 @@ test('desktop: the host picks another field at the kiosk; everyone restarts ther
   await waitForBeacon(page, (x) => x.seat === null, 8_000, 'left the seat')
 })
 
+
+test('desktop: view keys stay in the cockpit view; a crash stands the pilot up on the apron, ready to fly again', async ({ page }) => {
+  test.setTimeout(240_000)
+  await kioskStart(page)
+  const b0 = (await lastBeacon(page))!
+  const apron = b0.apron!
+  for (const k of ['F1', 'F4', 'F2', 'F1', 'F1']) { await page.keyboard.press(k); await page.waitForTimeout(250) }
+  const pinned = (await lastBeacon(page))!
+  console.log(`[pc view] engine view mode after F1/F4/F2/F1/F1: ${pinned.view}`)
+  expect(pinned.view).toBe(0)
+  for (let i = 0; i < 25; i++) { await page.keyboard.press('q'); await page.waitForTimeout(40) }
+  await page.keyboard.press('Tab')
+  await waitForBeacon(page, (x) => !!x.flight && x.flight[1] > 90, 90_000, 'take-off speed')
+  await page.keyboard.down('s'); await page.waitForTimeout(2500); await page.keyboard.up('s')
+  await page.keyboard.down('w')
+  const dead = await waitForBeacon(page, (x) => x.aircraft.length === 0 || x.aircraft.every((a) => !a.player || !a.alive), 90_000, 'crashed')
+  await page.keyboard.up('w')
+  console.log(`[pc crash] aircraft ${JSON.stringify(dead.aircraft.map((a) => ({ alive: a.alive, y: +a.pos[1].toFixed(0) })))} seat ${dead.seat}`)
+  const out = await waitForBeacon(page, (x) => x.seat === null && !!x.net && x.net.state !== NET_FLYING && !!x.ground.feet && Math.hypot(x.ground.feet[0] - apron.spawn[0], x.ground.feet[2] - apron.spawn[2]) < 10, 40_000, 'on the apron, not seated, standby')
+  const settled = await waitForBeacon(page, (x) => x.seat === null && !!x.ground.feet && Math.abs(x.ground.feet[1] - apron.elev) < 0.3 && Math.hypot(x.ground.feet[0] - apron.spawn[0], x.ground.feet[2] - apron.spawn[2]) < 3, 10_000, 'standing on the apron')
+  console.log(`[pc crash] feet ${JSON.stringify(settled.ground.feet!.map((n) => +n.toFixed(2)))} net state ${out.net!.state} seat ${settled.seat}`)
+  expect(Math.abs(settled.ground.feet![1] - apron.elev)).toBeLessThan(0.3)
+  await page.screenshot({ path: test.info().outputPath('pc-after-crash.png') })
+})

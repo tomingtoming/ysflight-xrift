@@ -15,6 +15,8 @@ export interface YsflightModule {
   _FsVrPlayerVisualDataPointer: () => number
   _FsVrSetFrameTimeMs: (ms: number) => void
   _FsVrAbiVersion?: () => number
+  /** Emscripten's OpenAL state: one Web Audio context per AL context. */
+  AL?: { contexts?: Record<string, { audioCtx?: AudioContext } | null> }
   _FsVrControlDataPointer: () => number
   _FsVrHandPoseDataPointer: () => number
   _FsVrAircraftStateDataPointer: () => number

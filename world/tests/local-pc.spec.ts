@@ -230,3 +230,37 @@ test('loading panel: shown while the engine loads, gone when the field is ready'
   await page.waitForTimeout(500)
   await page.screenshot({ path: test.info().outputPath('loading-done.png') })
 })
+
+test('view keys cannot leave the cockpit view while piloting; a crash puts the pilot back on the apron', async ({ page }) => {
+  test.setTimeout(180_000)
+  await watchBeacon(page)
+  await page.goto(`http://localhost:5173/?ysfxnet=host:${ROOM}`)
+  await waitForBeacon(page, (b) => b.role === 'host' && !!b.net && b.net.ready && !!b.apron, 90_000, 'server ready')
+  await page.evaluate(() => (window as unknown as { __ysfxLobbyStart: (a: string, s: string) => string }).__ysfxLobbyStart('F-16C_FIGHTINGFALCON', 'RW01_01'))
+  const seated = await waitForBeacon(page, (b) => b.seat === 'ysfx-cockpit' && !!b.net && b.net.state === NET_FLYING, 30_000, 'seated and flying')
+  const apron = seated.apron!
+  // F1 again, the weapon view, the outside view: the HUD is only drawn in the cockpit view.
+  for (const k of ['F1', 'F4', 'F2', 'F1', 'F1']) { await page.keyboard.press(k); await page.waitForTimeout(250) }
+  const pinned = (await lastBeacon(page))!
+  console.log(`[view] engine view mode after F1/F4/F2/F1/F1: ${pinned.view}`)
+  expect(pinned.view).toBe(0)
+
+  // Take off, then fly it into the ground.
+  for (let i = 0; i < 20; i++) await page.keyboard.press('q')
+  await page.keyboard.press('Tab')
+  await waitForBeacon(page, (b) => !!b.flight && b.flight[1] > 90, 60_000, 'take-off speed')
+  await page.keyboard.down('s'); await page.waitForTimeout(2500); await page.keyboard.up('s')
+  await page.keyboard.down('w')
+  const dead = await waitForBeacon(page, (b) => b.aircraft.length === 0 || b.aircraft.every((a) => !a.player || !a.alive), 60_000, 'crashed')
+  await page.keyboard.up('w')
+  console.log(`[crash] aircraft ${JSON.stringify(dead.aircraft.map((a) => ({ alive: a.alive, y: +a.pos[1].toFixed(0) })))} seat ${dead.seat}`)
+  // The pilot is stood up and brought back to the apron; the engine is in standby, ready for the kiosk.
+  const out = await waitForBeacon(page, (b) => b.seat === null && !!b.net && b.net.state !== NET_FLYING && !!b.ground.feet && Math.hypot(b.ground.feet[0] - apron.spawn[0], b.ground.feet[2] - apron.spawn[2]) < 10, 30_000, 'on the apron, not seated, standby')
+  console.log(`[crash] feet ${JSON.stringify(out.ground.feet!.map((n) => +n.toFixed(1)))} net state ${out.net!.state}`)
+  const stood = await waitForBeacon(page, (b) => !!b.ground.feet && b.ground.feet[1] > -0.3, 10_000, 'standing on the ground, not in it')
+  console.log(`[crash] settled feet ${JSON.stringify(stood.ground.feet!.map((n) => +n.toFixed(2)))}`)
+  await page.waitForTimeout(1500)
+  const again = await page.evaluate(() => (window as unknown as { __ysfxLobbyStart: (a: string, s: string) => string }).__ysfxLobbyStart('F-16C_FIGHTINGFALCON', 'RW01_01'))
+  expect(again).toBe('requested')
+  await waitForBeacon(page, (b) => b.seat === 'ysfx-cockpit' && !!b.net && b.net.state === NET_FLYING && b.aircraft.some((a) => a.player && a.alive), 30_000, 'flying again after the crash')
+})

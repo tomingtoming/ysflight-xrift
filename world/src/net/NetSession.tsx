@@ -9,9 +9,11 @@
  * state ('ysfx-net'), so no extra service is needed to agree on the host.
  */
 import { useInstanceState, useUsers } from '@xrift/world-components'
-import { useEffect, useMemo, useState } from 'react'
+import { useFrame } from '@react-three/fiber'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEngine } from '../engine/engineStore'
 import { YsflightEngine } from '../engine/YsflightEngine'
-import { pilotNameOf } from './netState'
+import { pilotNameOf, readNetState, type NetState } from './netState'
 import { StateBeacon } from './StateBeacon'
 
 export interface NetSessionState {
@@ -39,6 +41,31 @@ function makeRoom(): string {
 
 export type NetRole = 'host' | 'client'
 
+const CLIENT_STALL_S = 30
+const CLIENT_MAX_RETRIES = 5
+
+/**
+ * A client whose WebRTC join never completes just sits there: the engine
+ * prints "Joining WebRTC room ..." and nothing follows, no error either
+ * (seen twice on the production host, 2026-11-10; the visitor would look at
+ * the loading panel for good).  The cause is not known.  If the session is
+ * not ready this long after the engine came up, boot the engine again.
+ */
+function ClientWatchdog({ onStall }: { onStall: () => void }) {
+  const mod = useEngine()
+  const waited = useRef(0)
+  const done = useRef(false)
+  const ns = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
+  useEffect(() => { waited.current = 0; done.current = false }, [mod])
+  useFrame((_s, dt) => {
+    if (!mod || done.current) return
+    if (readNetState(mod, ns.current).ready) { done.current = true; return }
+    waited.current += Math.min(dt, 0.1)
+    if (waited.current > CLIENT_STALL_S) { done.current = true; onStall() }
+  })
+  return null
+}
+
 export interface NetSessionProps {
   /** `setField` is defined for the host only (toming's call, 2026-11-09: the host alone may change the map). */
   children?: (role: NetRole, pilotName: string, room: string | null, field: string, setField: ((field: string) => void) | undefined) => React.ReactNode
@@ -51,6 +78,7 @@ export function NetSession({ children }: NetSessionProps) {
   // Dev environment: instance state is not shared/updated there, so the forced
   // host keeps the field locally (the production path is the instance state).
   const [devField, setDevField] = useState<string | undefined>(undefined)
+  const [retry, setRetry] = useState(0)
 
   const me = localUser ?? { id: 'local', displayName: 'pilot' }
   const pilotName = useMemo(() => pilotNameOf(me), [me.id, me.displayName]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -93,7 +121,10 @@ export function NetSession({ children }: NetSessionProps) {
   const args = role === 'host' ? ['-server', pilotName, field] : ['-client', pilotName, room]
   return (
     <>
-      <YsflightEngine key={`${role}:${room}:${field}`} args={args} signalUrl={SIGNAL_URL} roomCode={room} />
+      <YsflightEngine key={`${role}:${room}:${field}:${retry}`} args={args} signalUrl={SIGNAL_URL} roomCode={room} />
+      {role === 'client' && retry < CLIENT_MAX_RETRIES ? (
+        <ClientWatchdog onStall={() => { console.warn(`[ysf] client not connected after ${CLIENT_STALL_S} s: restarting the engine (retry ${retry + 1})`); setRetry((r) => r + 1) }} />
+      ) : null}
       <StateBeacon role={role} room={room} field={field} />
       {children?.(role, pilotName, room, field, setField)}
     </>

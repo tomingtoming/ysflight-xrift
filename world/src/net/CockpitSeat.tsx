@@ -13,7 +13,7 @@
  * Other clients get seats on every aircraft from RemoteAircraftSeats.
  */
 import { useFrame, useThree } from '@react-three/fiber'
-import { Seat, useSeatContext, useUsers } from '@xrift/world-components'
+import { Seat, useSeatContext, useTeleport, useUsers } from '@xrift/world-components'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { controlBus } from '../engine/controlBus'
@@ -31,12 +31,15 @@ import { SaccHands } from '../vr/SaccHands'
 import { TouchConsole, isCoarsePointer } from './TouchConsole'
 import { saccStatus } from '../vr/saccControls'
 import { publishCockpit, publishSeat } from './StateBeacon'
-import { NET_FLYING, airBase, findAircraftByPilot, pilotNameOf, readNetState, type NetState } from './netState'
+import { NET_FLYING, airBase, findAircraftByPilot, pilotNameOf, readNetState, requestLeave, type NetState } from './netState'
 
 interface SeatOccupant { id: string; isLocalUser: boolean }
 interface SeatControlInput { forward: number; right: number }
 
 const STICK_RATE = 2.5
+const DEAD_LEAVE_S = 3 // s with a dead aircraft before the flight is ended for the pilot
+const EJECT_SETTLE_S = 4 // s after the eject during which a pilot found off the apron is brought back
+const EJECT_FRAMES = 20 // frames the seat stays unmounted: the host notices, stands the pilot up, then the teleport
 const ANCHOR_CAL_MAX_SPEED = 3 // m/s: below this the body sits where the seat puts it, and its offset can be learnt
 export const COCKPIT_SEAT_ID = 'ysfx-cockpit'
 
@@ -44,14 +47,25 @@ export interface CockpitSeatProps {
   /** Where the seat rests while the player has no aircraft. */
   home: [number, number, number]
   homeYaw?: number
+  /** Where a pilot whose aircraft is gone is put back on their feet (position, yaw in degrees). */
+  respawn: { position: [number, number, number]; yaw: number }
 }
 
-export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
+export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
   const mod = useEngine()
   const users = useUsers()
   const { localUser } = users
   const feet = useRef(new Vector3())
   const { sit } = useSeatContext()
+  const { teleport } = useTeleport()
+  const respawnRef = useRef(respawn)
+  respawnRef.current = respawn
+  // The seat is taken away for a moment to put a pilot without an aircraft back on their feet (see eject).
+  const [seatOn, setSeatOn] = useState(true)
+  const ejectFrames = useRef(0)
+  const deadFor = useRef(0)
+  const settleLeft = useRef(0)
+  const settleAcc = useRef(0)
   const gl = useThree((s) => s.gl)
   const camera = useThree((s) => s.camera)
   const group = useRef<Group>(null) // true aircraft pose: HUD, gunsight, hands
@@ -116,8 +130,26 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
     setHudOn(false)
     releaseStick()
     mod?._YsfxReleaseAllKeys()
-    pressKey('F2')
+    // Outside view for the parked aircraft -- only while the engine still
+    // flies it.  Once the flight is over the engine is in its standby, where
+    // F2 on a client asks to become a side window of the host's aircraft.
+    if (mod && readNetState(mod, netRef.current).state === NET_FLYING) pressKey('F2')
   }, [mod, pressKey, releaseStick])
+
+  /**
+   * Stand the local pilot up without their doing: the host has no call for
+   * it, but a seat that disappears puts its occupant on their feet where
+   * they are.  So the seat is unmounted for a few frames, then the pilot is
+   * brought to the apron (they stood up wherever the wreck was).
+   */
+  const eject = useCallback(() => {
+    seatedRef.current = false
+    publishSeat(null)
+    clearSeatLag()
+    setKioskJoin(false)
+    setSeatOn(false)
+    ejectFrames.current = EJECT_FRAMES
+  }, [])
 
   const onControlInput = useCallback((input: SeatControlInput, delta: number) => {
     if (!mod || !flyingRef.current || saccStatus.active || mouseStick.grabbed) return // VR hands / the mouse stick fly the aircraft
@@ -199,11 +231,42 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
       if (seatedRef.current && !flyingRef.current) {
         flyingRef.current = true
         setPiloting(true)
-        setHudOn(true)
-        pressKey('F1')
+        setHudOn(true) // the cockpit view itself is pinned while piloting (YsflightEngine step)
       }
     } else if (flyingRef.current) {
+      // The flight is over and the pilot still sits: the aircraft is gone
+      // (crashed, shot down, the field changed).  Put them back on the apron.
+      const wasSeated = seatedRef.current
       endLocalFlight()
+      if (wasSeated) eject()
+    }
+    // A dead aircraft does not end the flight by itself (the engine waits for
+    // a key the host never forwards): give the pilot a moment with the wreck,
+    // then leave the flight, which lands in the branch above.
+    if (flying && seatedRef.current && flyingRef.current && (airIndex < 0 || mod.HEAPF32[airBase(mod, airIndex) + 1] === 0)) {
+      deadFor.current += dt
+      if (deadFor.current > DEAD_LEAVE_S) { deadFor.current = 0; requestLeave(mod) }
+    } else deadFor.current = 0
+    if (ejectFrames.current > 0 && --ejectFrames.current === 0) {
+      const r = respawnRef.current
+      teleport({ position: r.position, yaw: r.yaw })
+      setSeatOn(true)
+      settleLeft.current = EJECT_SETTLE_S
+      settleAcc.current = 0
+    }
+    // The host may stand the pilot up after that teleport rather than before
+    // it (then they stand where the seat was, feet inside the ground: seen
+    // once in three production runs).  Keep checking for a few seconds and
+    // bring them back until they are on the apron.
+    if (settleLeft.current > 0) {
+      settleLeft.current -= dt
+      settleAcc.current += dt
+      if (settleAcc.current > 0.5) {
+        settleAcc.current = 0
+        const r = respawnRef.current
+        const p = readFeet(users, feet.current)
+        if (p && (Math.hypot(p.x - r.position[0], p.z - r.position[2]) > 3 || p.y < r.position[1] - 0.8)) teleport({ position: r.position, yaw: r.yaw })
+      }
     }
     const canBoard = flying && airIndex >= 0 && !seatedRef.current
     if (canBoard !== reboardable) setReboardable(canBoard)
@@ -289,7 +352,7 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
   useEffect(() => {
     if (!mod) return
     const t = { F: new Vector3(), p: new Vector3(), q: new Quaternion(), qv: new Quaternion(), s: new Vector3(), v: new Vector3(), w: new Vector3(), rig: new Matrix4(), inv: new Matrix4(), one: new Vector3(1, 1, 1) }
-    return onBeforeEngineDraw(() => {
+    return onBeforeEngineDraw((drawCamera) => {
       const g = group.current
       const a = anchor.current
       let F: Vector3 | null = null
@@ -324,6 +387,18 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
         mod.HEAPF32[vis] = 1
         for (let i = 0; i < 16; i++) mod.HEAPF32[vis + 1 + i] = g.matrix.elements[i]
         lead.current.reportVisual(true, g.matrix)
+        // Desktop third person: the host's camera is placed from the seat
+        // itself, on time, while the avatar and (now) the aircraft ride the
+        // late, stepping body -- the camera could not keep up with them and
+        // stuttered (toming, 2026-11-10).  Move the camera by the body's
+        // own displacement for this render: it rides the body too, like the
+        // VR eye.  (matrixWorld only: the host's camera.position is its own.)
+        if (!gl.xr?.isPresenting) {
+          t.v.copy(a.seat).add(a.cal).applyMatrix4(a.trueM) // where the body would be on the true pose
+          const me = drawCamera.matrixWorld.elements
+          me[12] += F.x - t.v.x; me[13] += F.y - t.v.y; me[14] += F.z - t.v.z
+          drawCamera.matrixWorldInverse.copy(drawCamera.matrixWorld).invert()
+        }
       }
       lead.current.reportAnchor(ok, trail)
     })
@@ -338,14 +413,14 @@ export function CockpitSeat({ home, homeYaw = 0 }: CockpitSeatProps) {
         {hudOn ? (<group position={seatPos}><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands /><StickMarker eye={eye} />{isCoarsePointer() ? <TouchConsole eye={eye} /> : null}</group>) : null}
       </group>
       <group ref={seatGroup}>
-        <Seat id={COCKPIT_SEAT_ID} position={seatPos} exitOffset={{ forward: 0, right: -3, up: 0 }}
+        {seatOn ? <Seat id={COCKPIT_SEAT_ID} position={seatPos} exitOffset={{ forward: 0, right: -3, up: 0 }}
           interactionText="操縦席に乗る" enabled={reboardable} onEnter={onEnter} onLeave={onLeave} onControlInput={onControlInput}>
           {/* cockpit-sized hit volume so the crosshair / ray finds the seat of a parked aircraft */}
           <mesh position={[0, 0.5, 0]}>
             <boxGeometry args={[1.0, 1.3, 1.6]} />
             <meshBasicMaterial transparent opacity={0} depthWrite={false} />
           </mesh>
-        </Seat>
+        </Seat> : null}
       </group>
     </>
   )

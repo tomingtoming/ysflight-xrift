@@ -122,6 +122,7 @@ test('two pilots in one instance: host + client, client sees the host aircraft',
     throw e
   })
   console.log(`[multi] client ready: ${JSON.stringify(cr.net)}`)
+  console.log(`[multi] client feet at ready: ${JSON.stringify(cr.ground.feet?.map((n) => +n.toFixed(1)))} seat ${cr.seat} apron ${JSON.stringify(cr.apron?.spawn.map((n) => +n.toFixed(1)))}`)
   const hr = await waitForBeacon(host, (x) => !!x.net && x.net.connected >= 1, 30_000, 'host counts one client')
   console.log(`[multi] host net: ${JSON.stringify(hr.net)}`)
 
@@ -133,6 +134,7 @@ test('two pilots in one instance: host + client, client sees the host aircraft',
   const seen = await waitForBeacon(client, (x) => x.aircraft.some((ac) => ac.alive && !ac.player), 30_000, 'client sees host aircraft')
   const remote = seen.aircraft.filter((ac) => ac.alive && !ac.player)
   console.log(`[multi] client sees: ${JSON.stringify(remote)}`)
+  console.log(`[multi] client feet when it sees the host: ${JSON.stringify(seen.ground.feet?.map((n) => +n.toFixed(1)))} seat ${seen.seat} apron ${JSON.stringify(seen.apron?.spawn.map((n) => +n.toFixed(1)))}`)
   expect(remote.length).toBeGreaterThanOrEqual(1)
   await host.screenshot({ path: test.info().outputPath('multi-host-flying.png') })
   await client.screenshot({ path: test.info().outputPath('multi-client-sees.png') })

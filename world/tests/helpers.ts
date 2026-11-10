@@ -90,6 +90,8 @@ export interface Beacon {
   ctlOwner?: string | null
   /** Engine loading stage (engine/loadStore.ts): download | boot | field | ready. */
   load?: { stage: string; progress: number | null }
+  /** The engine's main-window view mode (FSCOCKPITVIEW = 0). */
+  view?: number
   console: Array<{ id: string; pos: number[] }> | null
   mouse: { enabled: boolean; grabbed: boolean; ail: number; elv: number; grabs: number }
   gates: { coarse: boolean; xr: boolean }

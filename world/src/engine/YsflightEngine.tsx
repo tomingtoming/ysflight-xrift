@@ -91,6 +91,10 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
       .catch((e) => console.error('[ysf] boot failed', e))
     return () => {
       cancelled = true
+      // The module itself cannot be destroyed, and its sounds keep playing in
+      // their Web Audio context: the engine note went on after leaving the
+      // world (toming, 2026-11-10).  Close the contexts.
+      closeAudio(modRef.current)
       setEngine(null)
       setHudTexture(null)
       hudRef.current?.dispose()
@@ -146,17 +150,19 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
     m._YsfxSetWindowSize(size.x, size.y)
     // Start-up choreography: the engine's pre-flight "CENTER JOYSTICK" prompt
     // accepts the VR trigger (control block [7]); hold it for a moment, release,
-    // then switch to the outside view so the player's own aircraft is drawn.
+    // and that is all the prompt needs.
     const n = bootFrames.current++
     if (n > 60 && n < 150) controlBus.confirm()
     // Last frame's input claims -> the control block, then step on the frame's own clock.
     controlBus.flush(m)
+    // Pin the engine's cockpit view while the local player flies (fsvr.h
+    // external-view [2]): the HUD texture is only rendered there, and a view
+    // key pressed in VR or on the keyboard froze the HUD glass.
+    m.HEAPF32[(m._FsVrExternalViewDataPointer() >> 2) + 2] = isPiloting() ? 1 : 0
     m._FsVrSetFrameTimeMs(frameClock.nowMs)
-    if (n === 240) {
-      const key = m.cwrap('YsfxKeyByCode', 'number', ['string', 'number'])
-      key('F2', 1)
-      key('F2', 0)
-    }
+    // (No view key here: in a network client's standby F1..F4 mean "make me a
+    // side window of the server's aircraft", and a client that booted while
+    // the host flew became one -- its session state 2, no kiosk, 2026-11-10.)
     m._YsfxInterval()
   }, -3) // before the seats (-2) and the host's camera (-1) / body (0): see net/seatLead.ts
 
@@ -203,7 +209,7 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
       if (!m) return
       if (hookFrame.current !== frameClock.frame) { // first camera of the frame only
         hookFrame.current = frameClock.frame
-        runBeforeEngineDraw()
+        runBeforeEngineDraw(camera)
       }
       drawEngine(m, renderer, camera, tmpViewport)
     }
@@ -333,6 +339,14 @@ function muteRtcOverlay(): void {
   document.getElementById('ysfw-room-overlay')?.remove()
 }
 function noopOverlay(): void {}
+
+function closeAudio(m: YsflightModule | null): void {
+  const ctxs = m?.AL?.contexts
+  if (!ctxs) return
+  for (const c of Object.values(ctxs)) {
+    try { void c?.audioCtx?.close() } catch { /* already closed */ }
+  }
+}
 
 function teardownRtc(): void {
   const R = rtcGlobal()
