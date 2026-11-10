@@ -21,7 +21,8 @@ import { controlBus } from './controlBus'
 import { frameClock, tickFrameClock } from './frameClock'
 import { createEngine } from './loadEngine'
 import { loadStatusLine, setLoad } from './loadStore'
-import { isPiloting, runBeforeEngineDraw, setEngine, setHudTexture } from './engineStore'
+import { isPiloting, runBeforeEngineDraw, setEngine, setHudTexture, setMenuTexture } from './engineStore'
+import { createMenuTarget, type MenuTarget } from './menuTarget'
 import { createHudTarget, type HudTarget } from './hudTarget'
 import { subscribeKeys } from './keyBridge'
 import type { YsflightModule } from './types'
@@ -46,6 +47,7 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
   const modRef = useRef<YsflightModule | null>(null)
   const sizeRef = useRef(new Vector2())
   const hudRef = useRef<HudTarget | null>(null)
+  const menuRef = useRef<MenuTarget | null>(null)
 
   // ---- boot ---------------------------------------------------------------
   useEffect(() => {
@@ -78,6 +80,11 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
         // Real HUD: an off-screen target the engine renders its flat HUD into.
         hudRef.current = createHudTarget(m, ctx)
         setHudTexture(hudRef.current?.texture ?? null)
+        // Trial (?ysfxboard=1): the original standby screen on a board by the kiosk.
+        if (typeof location !== 'undefined' && /[?&]ysfxboard=1/.test(location.search)) {
+          menuRef.current = createMenuTarget(m, ctx)
+          setMenuTexture(menuRef.current?.texture ?? null)
+        }
         gl.resetState()
         controlBus.reset()
         setLoad('field')
@@ -99,6 +106,9 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
       setHudTexture(null)
       hudRef.current?.dispose()
       hudRef.current = null
+      setMenuTexture(null)
+      menuRef.current?.dispose()
+      menuRef.current = null
       teardownRtc() // a restarted engine (host hand-over) must start from a clean socket layer
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

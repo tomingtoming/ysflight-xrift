@@ -30,6 +30,8 @@ export interface YsflightModule {
   _FsVrAirListName: (i: number) => number
   _FsVrFlightDataPointer: () => number
   _FsVrHudDataPointer: () => number
+  /** Menu block (8 floats): enable, fbo, tex, width, height, drawn, textInput. Absent on engines before the standby board. */
+  _FsVrMenuDataPointer?: () => number
   _FsVrGroundProbeDataPointer: () => number
   _FsVrLobbyAirCount: () => number
   _FsVrLobbyAirName: (i: number) => number

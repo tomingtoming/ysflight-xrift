@@ -9,6 +9,7 @@ import { LoadingPanel } from './net/LoadingPanel'
 import { GroundPatch } from './net/GroundPatch'
 import { CockpitSeat } from './net/CockpitSeat'
 import { LobbyKiosk } from './net/LobbyKiosk'
+import { StandbyBoard } from './net/StandbyBoard'
 import { NetSession, type NetRole } from './net/NetSession'
 import { RemoteAircraftSeats } from './net/RemoteAircraftSeats'
 import { DevHooks } from './net/DevHooks'
@@ -110,6 +111,7 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
       {/* The standby screen in the world: pick an aircraft, a start position and
           (host only) the field, press 飛行開始, and the cockpit seat boards you. */}
       <LobbyKiosk position={[sx + KIOSK_AHEAD_M * dx, e + 1.6, sz + KIOSK_AHEAD_M * dz]} yaw={yaw} role={role} room={room} field={field} onField={setField} defaultStp={apron.stp} />
+      <StandbyBoard position={[sx + KIOSK_AHEAD_M * dx + 2.1 * rx, e + 1.6, sz + KIOSK_AHEAD_M * dz + 2.1 * rz]} yaw={yaw} />
       <LoadingPanel position={[sx + LOADING_AHEAD_M * dx, e + 1.6, sz + LOADING_AHEAD_M * dz]} yaw={yaw} field={field} />
       <CockpitSeat home={[sx + 6 * rx - 2 * dx, e + 0.5, sz + 6 * rz - 2 * dz]} homeYaw={yaw} respawn={{ position: [sx, e + 0.5, sz], yaw: spawnYawDeg }} />
       <RemoteAircraftSeats />
