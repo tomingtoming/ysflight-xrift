@@ -10,7 +10,7 @@
 import { resolve } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { HAS_AUTH, WORLD_URL } from './playwright.config'
-import { enterWorld, keepAuth, lastBeacon, NET_FLYING, waitForBeacon, walkAndAim, watchBeacon } from './helpers'
+import { aimError, enterWorld, keepAuth, lastBeacon, NET_FLYING, waitForBeacon, walkAndAim, watchBeacon } from './helpers'
 
 test.skip(!HAS_AUTH, 'no tests/.auth/xrift.json -- run `npm run test:auth` once')
 
@@ -254,10 +254,26 @@ test('desktop: the session panel by crosshair: kill report, and for the host a m
   const press = async (name: string) => {
     const btn = (await lastBeacon(page))!.panel!.buttons.find((x) => x.name === name)
     if (!btn) throw new Error(`no panel button ${name}`)
-    const aim = await walkAndAim(page, look, walk, 3.2, { id: name, p: btn.pos })
+    let aim = await walkAndAim(page, look, walk, 3.2, { id: name, p: btn.pos })
+    // The buttons are a few centimetres tall: aim finer than the kiosk needs.
+    for (let i = 0; i < 8 && (Math.abs(aim.dyaw) > 0.3 || Math.abs(aim.dpitch) > 0.3); i++) {
+      await look(aim.dyaw, aim.dpitch)
+      aim = await aimError(page, { id: name, p: btn.pos })
+    }
     console.log(`[panel:prod aim] ${name} dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
     await page.mouse.click(cur.mx, cur.my)
     await page.waitForTimeout(700)
+  }
+  // The showroom aircraft beside the kiosk: look at it for the record.
+  if (b.preview) {
+    let e = await aimError(page, { id: 'preview', p: b.preview.pos })
+    for (let i = 0; i < 12 && (Math.abs(e.dyaw) > 1 || Math.abs(e.dpitch) > 1); i++) {
+      await look(e.dyaw * 0.8, e.dpitch * 0.8)
+      e = await aimError(page, { id: 'preview', p: b.preview.pos })
+    }
+    console.log(`[preview:prod] ${b.preview.air} radius ${b.preview.radius.toFixed(1)} m, ${e.dist.toFixed(1)} m away`)
+    expect(b.preview.radius).toBeGreaterThan(1)
+    await page.screenshot({ path: test.info().outputPath('pc-preview.png') })
   }
   await press('kills')
   const rep = await waitForBeacon(page, (x) => !!x.panel?.log.some((l) => /\[Kill Report\]/.test(l)), 10_000, 'kill report in the log')

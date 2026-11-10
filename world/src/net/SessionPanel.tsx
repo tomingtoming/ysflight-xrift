@@ -23,8 +23,8 @@ import type { NetRole } from './NetSession'
 const PX = 0.001 // metres per pixel
 const W = 1200
 const H = 1000
-const LOG_LINES = 9
-const PILOT_ROWS = 5
+const LOG_LINES = 6
+const PILOT_ROWS = 4
 const CONFIRM_MS = 4000
 const MISSION = ['なし', '迎撃ミッション', '耐久モード', '近接航空支援']
 
@@ -102,15 +102,15 @@ export function SessionPanel({ position, yaw = 0, role }: { position: [number, n
   const button = (b: Btn) => {
     const hot = armed?.id === b.id
     return (
-      <Container key={b.id} flexGrow={1} flexBasis={0} height={64} borderRadius={10} justifyContent="center" alignItems="center"
+      <Container key={b.id} flexGrow={1} flexBasis={0} height={92} flexShrink={0} borderRadius={10} justifyContent="center" alignItems="center"
         backgroundColor={hot ? 0xb5651d : 0x2a3a4a} hover={{ backgroundColor: hot ? 0xd17a26 : 0x3a5068 }}
         cursor="pointer" onClick={() => press(b)}
         ref={(r: unknown) => { if (r) btnRefs.current.set(b.id, r); else btnRefs.current.delete(b.id) }}>
-        <Text fontSize={28} color={0xffffff} fontFamily="ja">{hot ? 'もう一度押して確定' : b.label}</Text>
+        <Text fontSize={34} color={0xffffff} fontFamily="ja">{hot ? 'もう一度押して確定' : b.label}</Text>
       </Container>
     )
   }
-  const row = (bs: Btn[]) => <Container flexDirection="row" gap={12}>{bs.map(button)}</Container>
+  const row = (bs: Btn[]) => <Container flexDirection="row" gap={12} flexShrink={0}>{bs.map(button)}</Container>
 
   const rot = useMemo<[number, number, number]>(() => [0, yaw, 0], [yaw])
   const shown = pilots.slice(0, PILOT_ROWS)
@@ -119,7 +119,7 @@ export function SessionPanel({ position, yaw = 0, role }: { position: [number, n
       <Container sizeX={W * PX} sizeY={H * PX} pixelSize={PX} backgroundColor={0x101418} borderRadius={20} padding={28}
         flexDirection="column" gap={12} fontFamilies={fontFamilies}>
         <Text fontSize={36} color={0xffffff} fontFamily="ja">{`飛行中 ${pilots.length} 機`}</Text>
-        <Container flexDirection="column" height={PILOT_ROWS * 34} gap={2}>
+        <Container flexDirection="column" height={PILOT_ROWS * 34} flexShrink={0} gap={2}>
           {shown.map((x) => <Text key={x} fontSize={26} color={0xd0d8e0} fontFamily="ja">{x}</Text>)}
           {pilots.length > PILOT_ROWS ? <Text fontSize={22} color={0x8090a0} fontFamily="ja">{`ほか ${pilots.length - PILOT_ROWS} 機`}</Text> : null}
         </Container>
