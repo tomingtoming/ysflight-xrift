@@ -1,17 +1,20 @@
-import { SpawnPoint, useTeleport } from '@xrift/world-components'
+import { SpawnPoint, useTeleport, useUsers } from '@xrift/world-components'
 import { CuboidCollider, RigidBody } from '@react-three/rapier'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
+import { Vector3 } from 'three'
 import { useEffect, useRef, useState } from 'react'
 import { useEngine } from './engine/engineStore'
 import { setLoad } from './engine/loadStore'
 import { LoadingPanel } from './net/LoadingPanel'
+import { GroundPatch } from './net/GroundPatch'
 import { CockpitSeat } from './net/CockpitSeat'
 import { LobbyKiosk } from './net/LobbyKiosk'
 import { NetSession, type NetRole } from './net/NetSession'
 import { RemoteAircraftSeats } from './net/RemoteAircraftSeats'
 import { DevHooks } from './net/DevHooks'
 import { lobbyStpHeadings, lobbyStpNames, lobbyStpPositions } from './net/netState'
-import { publishApron, setProbeBusy } from './net/StateBeacon'
+import { localSeatId, publishApron, setProbeBusy } from './net/StateBeacon'
+import { readFeet } from './net/seatLead'
 
 export interface WorldProps {
   position?: [number, number, number]
@@ -41,6 +44,9 @@ const ELEV_SAMPLES = 20
 function Airfield({ role, room, field, setField }: { role: NetRole; room: string | null; field: string; setField?: (f: string) => void }) {
   const mod = useEngine()
   const { teleport } = useTeleport()
+  const users = useUsers()
+  const camera = useThree((st) => st.camera)
+  const feetTmp = useRef(new Vector3())
   const [apron, setApron] = useState<Apron>(ATSUGI)
   const done = useRef(false)
   const samples = useRef<number[]>([])
@@ -80,8 +86,13 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
     setLoad('ready')
     setApron(next)
     publishApron(next)
-    // Visitors who arrived before the engine knew the field stand on the old apron: bring them over.
-    const movedFar = Math.hypot(next.spawn[0] - apron.spawn[0], next.spawn[2] - apron.spawn[2]) > 150
+    // Whoever is not near this apron is brought to it: visitors who stood on
+    // the previous field's apron, and visitors the host dropped at the world
+    // origin before this world had mounted its spawn point (a guest stayed
+    // there, 650 m from the kiosk, once the ground patch gave the origin a
+    // floor; before that they fell and were respawned -- production, 2026-11-10).
+    const here = readFeet(users, feetTmp.current) ?? camera.position
+    const movedFar = localSeatId() === null && Math.hypot(next.spawn[0] - here.x, next.spawn[2] - here.z) > 150
     if (movedFar) teleport({ position: [next.spawn[0], elev + 0.5, next.spawn[2]], yaw: (Math.atan2(next.dir[0], -next.dir[1]) * 180) / Math.PI })
   })
 
@@ -102,6 +113,7 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
       <LoadingPanel position={[sx + LOADING_AHEAD_M * dx, e + 1.6, sz + LOADING_AHEAD_M * dz]} yaw={yaw} field={field} />
       <CockpitSeat home={[sx + 6 * rx - 2 * dx, e + 0.5, sz + 6 * rz - 2 * dz]} homeYaw={yaw} respawn={{ position: [sx, e + 0.5, sz], yaw: spawnYawDeg }} />
       <RemoteAircraftSeats />
+      <GroundPatch />
       {import.meta.env.DEV ? <DevHooks onField={setField} /> : null}
 
       {/* Walkable ground: flat tiles at the field's apron elevation (the

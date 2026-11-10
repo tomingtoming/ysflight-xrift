@@ -46,6 +46,7 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
   const btnWorld = useRef(new Vector3())
   /** uikit items of the field column (uikit components are Object3Ds): their world centres go to the beacon so a harness can click one. */
   const fieldItemRefs = useRef(new Map<string, unknown>())
+  const stpItemRefs = useRef(new Map<string, unknown>())
   const itemWorld = useRef(new Vector3())
   const [airs, setAirs] = useState<string[]>([])
   const [stps, setStps] = useState<string[]>([])
@@ -102,6 +103,10 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
       publishKioskButton(groupRef.current.localToWorld(btnWorld.current).toArray())
       const items: Array<{ name: string; pos: number[] }> = []
       fieldItemRefs.current.forEach((r, name) => {
+        const o = r as { getWorldPosition?: (v: Vector3) => Vector3 } | null
+        if (o && typeof o.getWorldPosition === 'function') items.push({ name, pos: o.getWorldPosition(itemWorld.current).toArray() })
+      })
+      stpItemRefs.current.forEach((r, name) => {
         const o = r as { getWorldPosition?: (v: Vector3) => Vector3 } | null
         if (o && typeof o.getWorldPosition === 'function') items.push({ name, pos: o.getWorldPosition(itemWorld.current).toArray() })
       })
@@ -210,7 +215,7 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
         <Text fontSize={28} color={0xa0c8ff} fontFamily="ja">{status}</Text>
         <Container flexDirection="row" gap={28} flexGrow={1}>
           {list('機体', airs, pageAir, airPages, selAir, setSelAir, setPageAir)}
-          {list('スタート地点', stps, pageStp, stpPages, selStp, setSelStp, setPageStp)}
+          {list('スタート地点', stps, pageStp, stpPages, selStp, setSelStp, setPageStp, stpItemRefs.current)}
           {list(onField ? 'フィールド（ホスト）' : 'フィールド', fields, pageFld, fldPages, field, chooseField, setPageFld, fieldItemRefs.current)}
         </Container>
         <Container flexDirection="row" alignItems="center" justifyContent="space-between">

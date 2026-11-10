@@ -259,3 +259,31 @@ test('desktop: view keys stay in the cockpit view; a crash stands the pilot up o
   expect(Math.abs(settled.ground.feet![1] - apron.elev)).toBeLessThan(0.3)
   await page.screenshot({ path: test.info().outputPath('pc-after-crash.png') })
 })
+
+test('desktop: carrier start; leaving the seat on the deck, the pilot stands on it', async ({ page }) => {
+  test.setTimeout(240_000)
+  const { cur, look, walk } = await kioskStart(page)
+  // The first flight came from the kiosk's default start position.  Leave it,
+  // pick ON_CARRIER1 in the list and start again.
+  await page.keyboard.down('Space'); await page.waitForTimeout(600); await page.keyboard.up('Space')
+  await waitForBeacon(page, (x) => x.seat === null, 10_000, 'left the seat')
+  const item = (await waitForBeacon(page, (x) => !!x.kioskItems && x.kioskItems.some((i) => i.name === 'ON_CARRIER1'), 10_000, 'ON_CARRIER1 in the kiosk list').catch(() => null))?.kioskItems?.find((i) => i.name === 'ON_CARRIER1')
+  test.skip(!item, 'the kiosk beacon does not list start positions')
+  const aim = await walkAndAim(page, look, walk, 2.4, { id: 'ON_CARRIER1', p: item!.pos })
+  console.log(`[pc carrier] list aim dist ${aim.dist.toFixed(2)}`)
+  await page.mouse.click(cur.mx, cur.my)
+  const btn = (await lastBeacon(page))!.kioskBtn!
+  await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: btn })
+  await page.mouse.click(cur.mx, cur.my)
+  const seated = await waitForBeacon(page, (x) => x.seat === 'ysfx-cockpit' && x.aircraft.some((a) => a.player && a.alive && a.pos[1] > 20), 60_000, 'seated on the carrier')
+  console.log(`[pc carrier] aircraft at ${JSON.stringify(seated.aircraft.find((a) => a.player)!.pos.map((n) => +n.toFixed(1)))}`)
+  await page.waitForTimeout(1500)
+  await page.keyboard.down('Space'); await page.waitForTimeout(600); await page.keyboard.up('Space')
+  await waitForBeacon(page, (x) => x.seat === null, 10_000, 'left the seat on the deck')
+  await page.waitForTimeout(3000)
+  const stood = (await lastBeacon(page))!
+  console.log(`[pc carrier] feet ${JSON.stringify(stood.ground.feet!.map((n) => +n.toFixed(2)))} surface ${stood.ground.field?.toFixed(2)} deck ${stood.ground.deck}`)
+  expect(stood.ground.deck).toBe(true)
+  expect(Math.abs(stood.ground.feet![1] - stood.ground.field!)).toBeLessThan(0.3)
+  await page.screenshot({ path: test.info().outputPath('pc-carrier-deck.png') })
+})

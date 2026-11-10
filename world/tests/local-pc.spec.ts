@@ -264,3 +264,33 @@ test('view keys cannot leave the cockpit view while piloting; a crash puts the p
   expect(again).toBe('requested')
   await waitForBeacon(page, (b) => b.seat === 'ysfx-cockpit' && !!b.net && b.net.state === NET_FLYING && b.aircraft.some((a) => a.player && a.alive), 30_000, 'flying again after the crash')
 })
+
+test('carrier deck: a pilot who leaves the seat on the deck stands on it', async ({ page }) => {
+  await watchBeacon(page)
+  await page.goto(`http://localhost:5173/?ysfxnet=host:${ROOM}`)
+  await waitForBeacon(page, (b) => b.role === 'host' && !!b.net && b.net.ready && !!b.apron, 90_000, 'server ready')
+  // On the apron the floor under the feet is the field, not a deck.
+  const apron = await waitForBeacon(page, (b) => b.ground.field != null, 10_000, 'ground under the feet')
+  expect(apron.ground.deck).toBe(false)
+  await page.evaluate(() => (window as unknown as { __ysfxLobbyStart: (a: string, s: string) => string }).__ysfxLobbyStart('F-18C_HORNET', 'ON_CARRIER1'))
+  const seated = await waitForBeacon(page, (b) => b.seat === 'ysfx-cockpit' && !!b.net && b.net.state === NET_FLYING && b.aircraft.some((a) => a.player), 30_000, 'seated on the carrier')
+  const air = seated.aircraft.find((a) => a.player)!
+  console.log(`[carrier] aircraft at ${JSON.stringify(air.pos.map((n) => +n.toFixed(1)))}`)
+  expect(air.pos[1]).toBeGreaterThan(20)
+  await page.waitForTimeout(1500)
+  await page.keyboard.down('Space'); await page.waitForTimeout(300); await page.keyboard.up('Space')
+  await waitForBeacon(page, (b) => b.seat === null, 10_000, 'left the seat')
+  await page.waitForTimeout(3000)
+  const stood = (await lastBeacon(page))!
+  console.log(`[carrier] feet ${JSON.stringify(stood.ground.feet!.map((n) => +n.toFixed(2)))} surface ${stood.ground.field?.toFixed(2)} deck ${stood.ground.deck}`)
+  expect(stood.ground.deck).toBe(true)
+  expect(Math.abs(stood.ground.feet![1] - stood.ground.field!)).toBeLessThan(0.3)
+  expect(stood.ground.feet![1]).toBeGreaterThan(20)
+  // Walk a few seconds: still on the deck or, past its edge, down at the sea -- never below the surface.
+  await page.keyboard.down('w'); await page.waitForTimeout(2000); await page.keyboard.up('w')
+  await page.waitForTimeout(1500)
+  const walked = (await lastBeacon(page))!
+  console.log(`[carrier] after walking: feet ${JSON.stringify(walked.ground.feet!.map((n) => +n.toFixed(2)))} surface ${walked.ground.field?.toFixed(2)} deck ${walked.ground.deck}`)
+  expect(walked.ground.feet![1]).toBeGreaterThan(walked.ground.field! - 0.3)
+  await page.screenshot({ path: test.info().outputPath('carrier-deck.png') })
+})

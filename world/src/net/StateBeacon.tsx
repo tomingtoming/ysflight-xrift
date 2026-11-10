@@ -68,7 +68,7 @@ export interface YsfxBeacon {
   lobby: number[] | null
   kiosk: { hovers: number; lastPointer: string; ev: Record<string, number> }
   /** Ground check: camera height, the avatar's feet (host movement), and the engine's terrain under the feet. */
-  ground: { cam: number; feet: number[] | null; field: number | null }
+  ground: { cam: number; feet: number[] | null; field: number | null; deck?: boolean }
   /** Seated camera lag along the velocity and the lead applied (seatLead.ts). */
   lag: LagReport | null
   /** Phone switch panel button centres (TouchConsole), null when not shown. */
@@ -114,6 +114,10 @@ export function publishHud(lines: string[] | null): void {
 let probeBusy = false
 /** Airfield owns the ground probe while it measures the apron elevation. */
 export function setProbeBusy(b: boolean): void { probeBusy = b }
+export function isProbeBusy(): boolean { return probeBusy }
+/** GroundPatch publishes what the engine answered for the spot under the local player. */
+let groundUnder: { height: number; deck: boolean } | null = null
+export function publishGround(g: { height: number; deck: boolean } | null): void { groundUnder = g }
 
 let kioskBtn: number[] | null = null
 /** LobbyKiosk publishes the 飛行開始 button centre (world). */
@@ -147,18 +151,11 @@ export function StateBeacon({ role, room, field }: { role: NetRole | null; room:
     // Feet from the host's movement (array or {x,y,z}); terrain under them from the engine's probe.
     const fv = readFeet(users, feetTmp.current) // what the seat sees (incl. the dev stand-in's delay)
     const feet: number[] | null = fv ? fv.toArray() : null
-    let fieldElev: number | null = null
-    if (mod && !probeBusy) {
-      const gp = mod._FsVrGroundProbeDataPointer() >> 2
-      const px = feet ? feet[0] : v.current.x
-      const pz = feet ? feet[2] : v.current.z
-      mod.HEAPF32[gp] = px
-      mod.HEAPF32[gp + 1] = pz
-      if (mod.HEAPF32[gp + 3] !== 0) fieldElev = mod.HEAPF32[gp + 2]
-    }
+    // The surface under the local player, as the engine answered GroundPatch's probe.
+    const fieldElev: number | null = groundUnder && !probeBusy ? groundUnder.height : null
     const detail: YsfxBeacon = {
       t: Date.now(), role, room, net: null, flight: null, aircraft: [], hud: hudLines, seat: localSeat, draws: ysfxStats.draws, bg: ysfxStats.bgTicks, ctl: null, lobby: lobbyCounts ? [...lobbyCounts, kioskClicks(), kioskJoinPending() ? 1 : 0] : null, kiosk: kioskHovers(),
-      ground: { cam: v.current.y, feet, field: fieldElev },
+      ground: { cam: v.current.y, feet, field: fieldElev, deck: !!groundUnder?.deck },
       vr: { ...saccStatus, right: { ...saccStatus.right }, left: { ...saccStatus.left } },
       eye: eyeCalibration(),
       lag: seatLag(),
