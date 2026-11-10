@@ -4,7 +4,7 @@
  * the player stands on the field; the texture is read back for a visual check.
  */
 import { expect, test } from '@playwright/test'
-import { waitForBeacon, watchBeacon } from './helpers'
+import { NET_FLYING, lastBeacon, waitForBeacon, watchBeacon } from './helpers'
 
 async function dumpMenu(page: import('@playwright/test').Page): Promise<{ png: string; drawn: number; lit: number }> {
   return page.evaluate(() => {
@@ -35,16 +35,44 @@ async function dumpMenu(page: import('@playwright/test').Page): Promise<{ png: s
   })
 }
 
-test('original standby screen renders to the board texture while standing on the field', async ({ page }) => {
+const tap = (page: import('@playwright/test').Page, x: number, y: number) =>
+  page.evaluate(([px, py]) => (window as unknown as { __ysfxBoardTap: (x: number, y: number) => string }).__ysfxBoardTap(px, py), [x, y])
+
+test('original standby screen on the board: shown, choosers open, 飛行開始 boards the player', async ({ page }) => {
   await watchBeacon(page)
-  await page.goto('http://localhost:5173/?ysfxnet=host:12345678&ysfxboard=1')
+  await page.goto('http://localhost:5173/?ysfxnet=host:12345678')
   await waitForBeacon(page, (b) => b.role === 'host' && !!b.net && b.net.mode === 1 && b.net.ready, 90_000, 'server ready')
   await waitForBeacon(page, (b) => b.draws > 120, 20_000, 'engine drawing in standby')
   await page.waitForTimeout(2000)
-  const d = await dumpMenu(page)
   const { writeFileSync } = await import('node:fs')
-  writeFileSync(test.info().outputPath('board-texture.png'), Buffer.from(d.png.split(',')[1], 'base64'))
-  await page.screenshot({ path: test.info().outputPath('board-world.png') })
-  console.log(`[board] drawn ${d.drawn}, lit pixels ${d.lit}`)
+  const save = async (name: string) => {
+    const d = await dumpMenu(page)
+    writeFileSync(test.info().outputPath(name), Buffer.from(d.png.split(',')[1], 'base64'))
+    return d
+  }
+  const d = await save('board-standby.png')
+  console.log(`[board] standby lit pixels ${d.lit}`)
   expect(d.lit).toBeGreaterThan(500)
+
+  // 航空機選択 opens the original chooser on the same board; the field stays drawn.
+  await tap(page, 708, 107)
+  await page.waitForTimeout(1500)
+  const c = await save('board-choose-air.png')
+  await page.screenshot({ path: test.info().outputPath('board-world-choosing.png') })
+  console.log(`[board] chooser lit pixels ${c.lit}`)
+  const before = (await lastBeacon(page))!.draws
+  await page.waitForTimeout(500)
+  expect((await lastBeacon(page))!.draws).toBeGreaterThan(before)
+
+  // Pick the F-22 in the original list, 確定, then the original 飛行開始.
+  await tap(page, 56, 92)
+  await page.waitForTimeout(600)
+  await tap(page, 24, 377)
+  await page.waitForTimeout(1000)
+  await save('board-after-choose.png')
+  await tap(page, 858, 107)
+  const flying = await waitForBeacon(page, (b) => b.seat === 'ysfx-cockpit' && !!b.net && b.net.state === NET_FLYING && b.net.playerAirId >= 0, 30_000, 'seated and flying from the board')
+  const mine = flying.aircraft.find((a) => a.player && a.alive)
+  console.log(`[board] flying: ${JSON.stringify(mine)}`)
+  expect(mine).toBeTruthy()
 })

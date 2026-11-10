@@ -80,8 +80,8 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
         // Real HUD: an off-screen target the engine renders its flat HUD into.
         hudRef.current = createHudTarget(m, ctx)
         setHudTexture(hudRef.current?.texture ?? null)
-        // Trial (?ysfxboard=1): the original standby screen on a board by the kiosk.
-        if (typeof location !== 'undefined' && /[?&]ysfxboard=1/.test(location.search)) {
+        // The original standby screen on a board by the kiosk (?ysfxboard=0 turns it off).
+        if (!(typeof location !== 'undefined' && /[?&]ysfxboard=0/.test(location.search))) {
           menuRef.current = createMenuTarget(m, ctx)
           setMenuTexture(menuRef.current?.texture ?? null)
         }
@@ -174,6 +174,9 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
     // side window of the server's aircraft", and a client that booted while
     // the host flew became one -- its session state 2, no kiosk, 2026-11-10.)
     m._YsfxInterval()
+    // The original choosers draw their board frame from the step (engine Run
+    // side), outside the draw hook: hand three.js its GL state back.
+    if (menuRef.current) gl.resetState()
   }, -3) // before the seats (-2) and the host's camera (-1) / body (0): see net/seatLead.ts
 
   // ---- background ticks ---------------------------------------------------

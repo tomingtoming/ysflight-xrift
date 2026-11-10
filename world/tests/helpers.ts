@@ -72,6 +72,7 @@ export interface Beacon {
   field: { current: string | null; names: string[] }
   apron: { spawn: number[]; dir: number[]; elev: number; stp: string } | null
   kioskBtn: number[] | null
+  board?: { shown: boolean; fly: number[]; chooseAir: number[]; events: number; trail?: string } | null
   kioskItems: Array<{ name: string; pos: number[] }>
   gfx: { vp: number[]; eye: number; rt: null | { w: number; h: number; samples: number }; fb: boolean; buf: number[] }
   ctl: number[] | null

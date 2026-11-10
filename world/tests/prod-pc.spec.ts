@@ -10,7 +10,7 @@
 import { resolve } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { HAS_AUTH, WORLD_URL } from './playwright.config'
-import { enterWorld, keepAuth, lastBeacon, NET_FLYING, waitForBeacon, walkAndAim, watchBeacon } from './helpers'
+import { aimError, enterWorld, keepAuth, lastBeacon, NET_FLYING, waitForBeacon, walkAndAim, watchBeacon } from './helpers'
 
 test.skip(!HAS_AUTH, 'no tests/.auth/xrift.json -- run `npm run test:auth` once')
 
@@ -20,7 +20,7 @@ const DEG_PER_PX = 0.115 // host mouse sensitivity, measured 2026-11-09
 // placed per field, along the runway of the first start position).
 
 /** Enter the world, lock the pointer, walk to the kiosk, click 飛行開始, wait for the cockpit seat and the HUD. */
-async function kioskStart(page: Page) {
+async function kioskStart(page: Page, via: 'kiosk' | 'board' = 'kiosk') {
   await watchBeacon(page)
   await enterWorld(page, WORLD_URL)
   const b = await waitForBeacon(page, (x) => x.role !== null && !!x.net && x.net.ready, 150_000, 'session ready')
@@ -42,8 +42,16 @@ async function kioskStart(page: Page) {
   }
   const walk = async (ms: number) => { await page.keyboard.down('w'); await page.waitForTimeout(ms); await page.keyboard.up('w') }
   // The kiosk settles once the engine has answered the apron (start position + elevation).
-  const START_BTN = (await waitForBeacon(page, (x) => !!x.apron && !!x.kioskBtn, 30_000, 'apron + kiosk button position')).kioskBtn!
-  const aim = await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: START_BTN })
+  const placed = await waitForBeacon(page, (x) => !!x.apron && !!x.kioskBtn && (via === 'kiosk' || !!x.board?.shown), 30_000, 'apron + button position')
+  const START_BTN = via === 'kiosk' ? placed.kioskBtn! : placed.board!.fly
+  let aim = await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: START_BTN })
+  if (via === 'board') {
+    // The original screen's buttons are about 5 cm tall on the board: aim finer than a degree.
+    for (let it = 0; it < 10 && (Math.abs(aim.dyaw) > 0.2 || Math.abs(aim.dpitch) > 0.2); it++) {
+      await look(aim.dyaw, aim.dpitch)
+      aim = await aimError(page, { id: 'board-fly', p: START_BTN })
+    }
+  }
   console.log(`[kiosk aim] dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
   await page.screenshot({ path: test.info().outputPath('pc-kiosk.png') })
 
@@ -189,6 +197,15 @@ test('desktop: kiosk seat puts the eye on the cockpit point; B/F/Q/A keys; leave
   await waitForBeacon(page, (x) => !!x.hud && /SPD/.test(x.hud[0]), 10_000, 'HUD back')
   await page.keyboard.down('Space'); await page.waitForTimeout(600); await page.keyboard.up('Space')
   await waitForBeacon(page, (x) => x.seat === null, 8_000, 'left again')
+})
+
+test('desktop: the original standby screen on the board, its 飛行開始 by crosshair', async ({ page }) => {
+  await kioskStart(page, 'board')
+  const b = (await lastBeacon(page))!
+  console.log(`[board:prod] role ${b.role}, pointer events ${b.board?.events} trail ${b.board?.trail}, aircraft ${JSON.stringify(b.aircraft.find((a) => a.player))}`)
+  await page.screenshot({ path: test.info().outputPath('pc-board-flying.png') })
+  await page.keyboard.down('Space'); await page.waitForTimeout(600); await page.keyboard.up('Space')
+  await waitForBeacon(page, (x) => x.seat === null, 8_000, 'left')
 })
 
 test('desktop: the host picks another field at the kiosk; everyone restarts there and the apron moves', async ({ page }) => {
