@@ -78,20 +78,3 @@ function subscribeHud(l: () => void): () => void {
 export function useHudTexture(): Texture | null {
   return useSyncExternalStore(subscribeHud, getHudTexture, getHudTexture)
 }
-
-// ---- Standby board texture --------------------------------------------------
-// The engine's original standby screen rendered off-screen (engine/menuTarget.ts).
-let menuTexture: Texture | null = null
-const menuListeners = new Set<() => void>()
-export function setMenuTexture(t: Texture | null): void {
-  menuTexture = t
-  menuListeners.forEach((l) => l())
-}
-function getMenuTexture(): Texture | null { return menuTexture }
-function subscribeMenu(l: () => void): () => void {
-  menuListeners.add(l)
-  return () => menuListeners.delete(l)
-}
-export function useMenuTexture(): Texture | null {
-  return useSyncExternalStore(subscribeMenu, getMenuTexture, getMenuTexture)
-}

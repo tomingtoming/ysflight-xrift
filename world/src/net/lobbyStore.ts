@@ -24,7 +24,8 @@ export function kioskHovers(): { hovers: number; lastPointer: string; ev: Record
  * the engine must let that one go first; LobbyKiosk's frame loop joins once
  * it is back in standby.  Shared so the dev hook can start the same way.
  */
-let pendingJoinReq: { air: string; stp: string } | null = null
-export function setPendingJoin(j: { air: string; stp: string } | null): void { pendingJoinReq = j }
-export function pendingJoin(): { air: string; stp: string } | null { return pendingJoinReq }
+export interface JoinRequest { air: string; stp: string; iff?: number }
+let pendingJoinReq: JoinRequest | null = null
+export function setPendingJoin(j: JoinRequest | null): void { pendingJoinReq = j }
+export function pendingJoin(): JoinRequest | null { return pendingJoinReq }
 

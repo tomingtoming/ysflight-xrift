@@ -23,6 +23,8 @@ export interface NetState {
   fatal: number
   /** Join requests the server rejected (client mode; counts up). */
   rejected: number
+  /** Mission the server runs (server mode): 0 none, 1 intercept, 2 endurance, 3 close air support. */
+  mission?: number
 }
 
 export function readNetState(m: YsflightModule, out: NetState): NetState {
@@ -37,6 +39,7 @@ export function readNetState(m: YsflightModule, out: NetState): NetState {
   out.runState = f[p + 6]
   out.fatal = f[p + 7]
   out.rejected = f[p + 8]
+  out.mission = f[p + 9]
   return out
 }
 
@@ -72,6 +75,21 @@ export function findAircraftByPilot(m: YsflightModule, pilot: string): number {
 
 export function requestJoin(m: YsflightModule, air: string, stp: string, iff = -1): void {
   m.ccall('FsVrNetRequestJoin', null, ['string', 'string', 'number'], [air, stp, iff])
+}
+
+/** Lobby commands of fsvr.h FsVrNetRequestCommand. */
+export const NET_CMD = {
+  LOSS_REPORT: 1, KILL_REPORT: 2,
+  INTERCEPT: 10, ENDURANCE_JET: 11, ENDURANCE_WW2: 12, CLOSE_AIR_SUPPORT: 13, TERMINATE_MISSION: 14, REVIVE_GROUND: 15,
+} as const
+export function requestCommand(m: YsflightModule, cmd: number): void {
+  m._FsVrNetRequestCommand(cmd)
+}
+/** The newest `n` lines of the engine console, oldest first. */
+export function consoleTail(m: YsflightModule, n: number): string[] {
+  const out: string[] = []
+  for (let i = Math.min(n, m._FsVrConsoleSeq()) - 1; i >= 0; i--) out.push(m.UTF8ToString(m._FsVrConsoleLine(i)).trimEnd())
+  return out
 }
 
 export function requestLeave(m: YsflightModule): void {

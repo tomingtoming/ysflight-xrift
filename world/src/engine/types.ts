@@ -30,9 +30,14 @@ export interface YsflightModule {
   _FsVrAirListName: (i: number) => number
   _FsVrFlightDataPointer: () => number
   _FsVrHudDataPointer: () => number
-  /** Menu block (8 floats): enable, fbo, tex, width, height, drawn, textInput. Absent on engines before the standby board. */
-  _FsVrMenuDataPointer?: () => number
   _FsVrGroundProbeDataPointer: () => number
+  /** Showroom preview block (fsvr.h): enable, position xyz (world), heading, [5] template radius (engine). */
+  _FsVrPreviewDataPointer: () => number
+  /** Lobby commands beyond join/leave (fsvr.h): reports, missions, revive ground. */
+  _FsVrNetRequestCommand: (cmd: number) => void
+  /** Engine console text: lines ever printed, and line `back` lines before the newest (char*). */
+  _FsVrConsoleSeq: () => number
+  _FsVrConsoleLine: (back: number) => number
   _FsVrLobbyAirCount: () => number
   _FsVrLobbyAirName: (i: number) => number
   _FsVrLobbyStpCount: () => number

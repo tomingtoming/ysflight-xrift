@@ -13,7 +13,7 @@ import { useSeatContext } from '@xrift/world-components'
 import { useEffect } from 'react'
 import { useEngine } from '../engine/engineStore'
 import { setKioskJoin, setPendingJoin } from './lobbyStore'
-import { NET_FLYING, readNetState, requestJoin, requestLeave, type NetState } from './netState'
+import { NET_FLYING, readNetState, requestCommand, requestJoin, requestLeave, type NetState } from './netState'
 import { setDevBodyLag } from './seatLead'
 
 export function DevHooks({ onField }: { onField?: (field: string) => void }) {
@@ -46,8 +46,10 @@ export function DevHooks({ onField }: { onField?: (field: string) => void }) {
       requestJoin(mod, air, stp)
       return 'requested'
     }
+    w.__ysfxNetCommand = (cmd: number) => { if (!mod) return 'engine not ready'; requestCommand(mod, cmd); return 'queued' }
     return () => {
       delete w.__ysfxLobbyStart
+      delete w.__ysfxNetCommand
       delete w.__ysfxSit
       delete w.__ysfxStand
       delete w.__ysfxSetField

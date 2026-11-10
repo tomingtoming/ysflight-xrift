@@ -21,8 +21,7 @@ import { controlBus } from './controlBus'
 import { frameClock, tickFrameClock } from './frameClock'
 import { createEngine } from './loadEngine'
 import { loadStatusLine, setLoad } from './loadStore'
-import { isPiloting, runBeforeEngineDraw, setEngine, setHudTexture, setMenuTexture } from './engineStore'
-import { createMenuTarget, type MenuTarget } from './menuTarget'
+import { isPiloting, runBeforeEngineDraw, setEngine, setHudTexture } from './engineStore'
 import { createHudTarget, type HudTarget } from './hudTarget'
 import { subscribeKeys } from './keyBridge'
 import type { YsflightModule } from './types'
@@ -47,7 +46,6 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
   const modRef = useRef<YsflightModule | null>(null)
   const sizeRef = useRef(new Vector2())
   const hudRef = useRef<HudTarget | null>(null)
-  const menuRef = useRef<MenuTarget | null>(null)
 
   // ---- boot ---------------------------------------------------------------
   useEffect(() => {
@@ -80,11 +78,6 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
         // Real HUD: an off-screen target the engine renders its flat HUD into.
         hudRef.current = createHudTarget(m, ctx)
         setHudTexture(hudRef.current?.texture ?? null)
-        // The original standby screen on a board by the kiosk (?ysfxboard=0 turns it off).
-        if (!(typeof location !== 'undefined' && /[?&]ysfxboard=0/.test(location.search))) {
-          menuRef.current = createMenuTarget(m, ctx)
-          setMenuTexture(menuRef.current?.texture ?? null)
-        }
         gl.resetState()
         controlBus.reset()
         setLoad('field')
@@ -106,9 +99,6 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
       setHudTexture(null)
       hudRef.current?.dispose()
       hudRef.current = null
-      setMenuTexture(null)
-      menuRef.current?.dispose()
-      menuRef.current = null
       teardownRtc() // a restarted engine (host hand-over) must start from a clean socket layer
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -174,9 +164,6 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
     // side window of the server's aircraft", and a client that booted while
     // the host flew became one -- its session state 2, no kiosk, 2026-11-10.)
     m._YsfxInterval()
-    // The original choosers draw their board frame from the step (engine Run
-    // side), outside the draw hook: hand three.js its GL state back.
-    if (menuRef.current) gl.resetState()
   }, -3) // before the seats (-2) and the host's camera (-1) / body (0): see net/seatLead.ts
 
   // ---- background ticks ---------------------------------------------------

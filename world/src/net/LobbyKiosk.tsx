@@ -3,7 +3,7 @@
  *
  * A panel on the apron listing every aircraft the engine knows and the
  * field's start positions (both read from the engine once the lobby is
- * ready).  Pick one of each and press 飛行開始: the world asks the engine to
+ * ready).  Pick one of each (and the IFF, the team) and press 飛行開始: the world asks the engine to
  * join the session; when the aircraft appears the CockpitSeat boards the
  * player automatically.  Interaction goes through uikit's onClick, which the
  * host drives from the crosshair (PC), touch (phone) and the controller ray
@@ -15,7 +15,7 @@ import { useDefaultFont } from '@xrift/world-components'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Group, Vector3 } from 'three'
 import { useEngine } from '../engine/engineStore'
-import { localSeatId, publishFields, publishKioskButton, publishKioskItems, publishLobby } from './StateBeacon'
+import { localSeatId, publishFields, publishKioskButton, publishKioskItems, publishLobby, publishPreview } from './StateBeacon'
 import { countKioskClick, noteKioskPointer, pendingJoin, setKioskJoin, setPendingJoin } from './lobbyStore'
 import { NET_FLYING, airBase, airCount, lobbyAirNames, lobbyFieldNames, lobbyStpNames, lobbyStpPositions, readNetState, requestJoin, requestLeave, type NetState } from './netState'
 import type { NetRole } from './NetSession'
@@ -24,6 +24,12 @@ const PAGE = 10
 const PX = 0.001 // metres per pixel
 const W = 1700
 const H = 1000
+/** The panel's centre above the ground (World places it there). */
+const KIOSK_CENTRE_M = 1.6
+const PREVIEW_CLEAR_M = 0.6
+const PREVIEW_GAP_M = 3
+const PANEL_HALF_M = (W * PX) / 2
+const PREVIEW_TURN_RAD_S = 0.35
 
 export interface LobbyKioskProps {
   position: [number, number, number]
@@ -35,11 +41,14 @@ export interface LobbyKioskProps {
   /** The session's field and, for the host only, how to change it (every engine restarts). */
   field: string
   onField?: (field: string) => void
+  /** Unit vectors on the ground (x, z): where the showroom preview stands relative to the panel. */
+  previewSide?: [number, number]
+  previewAhead?: [number, number]
 }
 
 const ptype = (e: unknown) => String((e as { pointerType?: string }).pointerType ?? (e as { nativeEvent?: { pointerType?: string } }).nativeEvent?.pointerType ?? '?')
 
-export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_FIGHTINGFALCON', defaultStp = 'RW01_01', field, onField }: LobbyKioskProps) {
+export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_FIGHTINGFALCON', defaultStp = 'RW01_01', field, onField, previewSide = [-1, 0], previewAhead = [0, -1] }: LobbyKioskProps) {
   const mod = useEngine()
   const fontFamilies = useDefaultFont(['ja'])
   const groupRef = useRef<Group>(null)
@@ -56,6 +65,8 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
   useEffect(() => { setAirs([]); setStps([]) }, [mod])
   const [selAir, setSelAir] = useState(defaultAir)
   const [selStp, setSelStp] = useState(defaultStp)
+  /** IFF 0..3 (shown as 1..4): the team the aircraft joins as. */
+  const [selIff, setSelIff] = useState(0)
   const [pageAir, setPageAir] = useState(0)
   const [pageStp, setPageStp] = useState(0)
   const [status, setStatus] = useState('エンジン起動中…')
@@ -122,7 +133,7 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
     if (pj && ns.ready && !ns.waiting && ns.state !== NET_FLYING) {
       setPendingJoin(null)
       setKioskJoin(true)
-      requestJoin(mod, pj.air, pj.stp)
+      requestJoin(mod, pj.air, pj.stp, pj.iff ?? -1)
     }
     if (ns.rejected > rejectedSeen.current) {
       rejectedSeen.current = ns.rejected
@@ -155,18 +166,51 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
     }
   })
 
+  // Showroom preview: the selected aircraft, life-size, turning slowly behind
+  // the kiosk (the engine draws it; it is not part of the session).  Hidden
+  // while the local player sits in a cockpit.
+  useEffect(() => {
+    if (!mod || airs.length === 0) return
+    mod.ccall('FsVrPreviewSetAircraft', null, ['string'], [selAir])
+    return () => { mod.HEAPF32[mod._FsVrPreviewDataPointer() >> 2] = 0 }
+  }, [mod, selAir, airs.length])
+  const previewPos = useRef(new Vector3())
+  const previewTurn = useRef(0)
+  useFrame((_s, dt) => {
+    if (!mod || !groupRef.current) return
+    const p = mod._FsVrPreviewDataPointer() >> 2
+    const f = mod.HEAPF32
+    const radius = f[p + 5]
+    f[p] = airs.length > 0 && localSeatId() === null ? 1 : 0
+    previewTurn.current = (previewTurn.current + dt * PREVIEW_TURN_RAD_S) % (Math.PI * 2)
+    // Beside the panel, on the visitor's left (the session panel stands on the
+    // right), a gap plus its own radius away so the largest airliner clears
+    // the kiosk, and lifted with its size so the belly clears the ground.
+    const r = radius > 0 ? radius : 10
+    const side = PANEL_HALF_M + PREVIEW_GAP_M + r
+    previewPos.current.set(
+      position[0] + previewSide[0] * side + previewAhead[0] * r * 0.5,
+      position[1] - KIOSK_CENTRE_M + PREVIEW_CLEAR_M + r * 0.15,
+      position[2] + previewSide[1] * side + previewAhead[1] * r * 0.5)
+    f[p + 1] = previewPos.current.x
+    f[p + 2] = previewPos.current.y
+    f[p + 3] = previewPos.current.z
+    f[p + 4] = previewTurn.current
+    publishPreview({ air: selAir, pos: previewPos.current.toArray(), radius })
+  })
+
   const start = useCallback(() => {
     countKioskClick()
     if (!mod || !canStart) return
     if (readNetState(mod, netRef.current).state === NET_FLYING) {
       // A parked aircraft still stands: let it go first, join when the engine is back in standby.
-      setPendingJoin({ air: selAir, stp: selStp })
+      setPendingJoin({ air: selAir, stp: selStp, iff: selIff })
       requestLeave(mod)
       return
     }
     setKioskJoin(true)
-    requestJoin(mod, selAir, selStp)
-  }, [mod, canStart, selAir, selStp])
+    requestJoin(mod, selAir, selStp, selIff)
+  }, [mod, canStart, selAir, selStp, selIff])
 
   const rot = useMemo<[number, number, number]>(() => [0, yaw, 0], [yaw])
   const airPages = Math.max(1, Math.ceil(airs.length / PAGE))
@@ -220,6 +264,16 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
         </Container>
         <Container flexDirection="row" alignItems="center" justifyContent="space-between">
           <Text fontSize={30} color={0xffffff} fontFamily="ja">{`選択: ${selAir} / ${selStp}`}</Text>
+          <Container flexDirection="row" alignItems="center" gap={10}>
+            <Text fontSize={30} color={0xffffff} fontFamily="ja">IFF</Text>
+            {[0, 1, 2, 3].map((i) => (
+              <Container key={i} width={64} height={64} borderRadius={10} justifyContent="center" alignItems="center"
+                backgroundColor={i === selIff ? 0x2f6fd0 : 0x222222} hover={{ backgroundColor: i === selIff ? 0x3a80e8 : 0x383838 }}
+                cursor="pointer" onClick={() => setSelIff(i)}>
+                <Text fontSize={30} color={0xffffff}>{String(i + 1)}</Text>
+              </Container>
+            ))}
+          </Container>
           <Container width={320} height={80} borderRadius={14} justifyContent="center" alignItems="center"
             backgroundColor={canStart ? 0x1f9d55 : 0x444444} hover={{ backgroundColor: canStart ? 0x27b863 : 0x444444 }}
             cursor="pointer" onClick={(e) => { noteKioskPointer('click', ptype(e)); start() }}

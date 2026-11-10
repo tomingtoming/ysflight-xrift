@@ -59,7 +59,7 @@ export interface Beacon {
   t: number
   role: 'host' | 'client' | null
   room: string | null
-  net: { mode: number; ready: boolean; state: number; waiting: boolean; playerAirId: number; connected: number; runState: number; fatal: number; rejected: number } | null
+  net: { mode: number; ready: boolean; state: number; waiting: boolean; playerAirId: number; connected: number; runState: number; fatal: number; rejected: number; mission?: number } | null
   flight: number[] | null
   aircraft: Array<{ id: number; alive: boolean; player: boolean; name: string; pos: number[] }>
   hud: string[] | null
@@ -72,8 +72,9 @@ export interface Beacon {
   field: { current: string | null; names: string[] }
   apron: { spawn: number[]; dir: number[]; elev: number; stp: string } | null
   kioskBtn: number[] | null
-  board?: { shown: boolean; fly: number[]; chooseAir: number[]; events: number; trail?: string } | null
   kioskItems: Array<{ name: string; pos: number[] }>
+  preview?: { air: string; pos: number[]; radius: number } | null
+  panel?: { buttons: Array<{ name: string; pos: number[] }>; log: string[] } | null
   gfx: { vp: number[]; eye: number; rt: null | { w: number; h: number; samples: number }; fb: boolean; buf: number[] }
   ctl: number[] | null
   lobby: number[] | null
@@ -194,12 +195,22 @@ export async function walkAndAim(
  */
 export async function keepAuth(context: import('@playwright/test').BrowserContext, authFile: string): Promise<void> {
   const fs = await import('node:fs')
-  const expiry = (cookies: Array<{ name: string; expires: number }>) => cookies.find((c) => c.name === 'xrift-refresh-token')?.expires ?? -1
+  type Cookie = { name: string; expires: number; value?: string }
+  const find = (cookies: Cookie[], name: string) => cookies.find((c) => c.name === name)
   const state = await context.storageState()
-  const fresh = expiry(state.cookies)
-  let saved = -1
-  try { saved = expiry(JSON.parse(fs.readFileSync(authFile, 'utf8')).cookies ?? []) } catch { /* unreadable: leave it alone */ return }
-  if (fresh > saved + 60) {
+  const freshR = find(state.cookies, 'xrift-refresh-token')
+  if (!freshR) { console.log('[auth] this run ended without a refresh token: saved session left as it was'); return }
+  let savedCookies: Cookie[] = []
+  try { savedCookies = JSON.parse(fs.readFileSync(authFile, 'utf8')).cookies ?? [] } catch { /* unreadable: leave it alone */ return }
+  const savedR = find(savedCookies, 'xrift-refresh-token')
+  const fresh = freshR.expires
+  const saved = savedR?.expires ?? -1
+  // Write back when the session moved on in any way: a longer refresh token,
+  // a different one (the server may hand out a new one on use, and the old
+  // one then stops working -- suspected after every run lost its login at
+  // once, 2026-11-10), or a newer access token.
+  const accessNewer = (find(state.cookies, 'xrift-access-token')?.expires ?? -1) > (find(savedCookies, 'xrift-access-token')?.expires ?? -1) + 60
+  if (fresh > saved + 60 || (fresh >= saved - 60 && (freshR.value !== savedR?.value || accessNewer))) {
     fs.writeFileSync(authFile, JSON.stringify(state, null, 2))
     console.log(`[auth] session renewed: refresh token now good for ${((fresh - Date.now() / 1000) / 86400).toFixed(1)} days`)
   } else console.log(`[auth] saved session kept: refresh token good for ${((saved - Date.now() / 1000) / 86400).toFixed(1)} days`)

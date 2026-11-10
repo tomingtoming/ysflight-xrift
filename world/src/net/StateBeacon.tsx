@@ -49,7 +49,10 @@ export interface YsfxBeacon {
   apron: { spawn: number[]; dir: number[]; elev: number; stp: string } | null
   /** World position of the kiosk's 飛行開始 button centre. */
   kioskBtn: number[] | null
-  board: BoardInfo | null
+  /** The showroom preview behind the kiosk. */
+  preview: { air: string; pos: number[]; radius: number } | null
+  /** The session panel: its buttons (world centres) and the engine console lines it shows. */
+  panel: { buttons: Array<{ name: string; pos: number[] }>; log: string[] } | null
   /** World centres of the kiosk's field-column items on the current page. */
   kioskItems: Array<{ name: string; pos: number[] }>
   /** Where the last engine draw went: viewport, eye, host render target, framebuffer bound, drawing buffer. */
@@ -123,10 +126,12 @@ export function publishGround(g: { height: number; deck: boolean } | null): void
 let kioskBtn: number[] | null = null
 /** LobbyKiosk publishes the 飛行開始 button centre (world). */
 export function publishKioskButton(pos: number[] | null): void { kioskBtn = pos }
-export interface BoardInfo { shown: boolean; fly: number[]; chooseAir: number[]; events: number; trail: string }
-let boardInfo: BoardInfo | null = null
-/** StandbyBoard publishes two of the original screen's buttons (world, host dialog layout) and its pointer-event count. */
-export function publishBoard(b: BoardInfo | null): void { boardInfo = b }
+let panelInfo: { buttons: Array<{ name: string; pos: number[] }>; log: string[] } | null = null
+/** SessionPanel publishes its buttons' world centres and the console lines it shows. */
+export function publishPanel(p: { buttons: Array<{ name: string; pos: number[] }>; log: string[] } | null): void { panelInfo = p }
+let previewInfo: { air: string; pos: number[]; radius: number } | null = null
+/** LobbyKiosk publishes the showroom preview: which aircraft, where (world), and the radius the engine reported. */
+export function publishPreview(p: { air: string; pos: number[]; radius: number } | null): void { previewInfo = p }
 let kioskItems: Array<{ name: string; pos: number[] }> = []
 /** LobbyKiosk publishes the world centres of its field-column items (current page). */
 export function publishKioskItems(items: Array<{ name: string; pos: number[] }>): void { kioskItems = items }
@@ -174,8 +179,9 @@ export function StateBeacon({ role, room, field }: { role: NetRole | null; room:
       field: { current: field, names: fieldNames },
       apron: apronInfo,
       kioskBtn,
-      board: boardInfo,
       kioskItems,
+      panel: panelInfo,
+      preview: previewInfo,
       gfx: { vp: ysfxStats.lastVp, eye: ysfxStats.lastEye, rt: ysfxStats.rt, fb: ysfxStats.fb, buf: ysfxStats.buf },
     }
     if (mod) {
