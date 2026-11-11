@@ -10,7 +10,7 @@
 import { resolve } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { HAS_AUTH, WORLD_URL } from './playwright.config'
-import { aimError, enterWorld, keepAuth, lastBeacon, NET_FLYING, waitForBeacon, walkAndAim, watchBeacon } from './helpers'
+import { aimError, enterWorld, installFakePad, keepAuth, lastBeacon, NET_FLYING, setPad, waitForBeacon, walkAndAim, watchBeacon } from './helpers'
 
 test.skip(!HAS_AUTH, 'no tests/.auth/xrift.json -- run `npm run test:auth` once')
 
@@ -349,6 +349,42 @@ test('desktop: carrier start; leaving the seat on the deck, the pilot stands on 
 // the simulation has the aircraft, where the host has the camera, where it
 // has the body.  Run headed on a 120 Hz display, or with YSFX_ARGS to lift
 // the frame-rate cap, to see what a pilot on such a display sees.
+test('desktop: a gamepad flies the aircraft on the real host (stick, rudder, trigger throttle, fire); the pilot stays seated', async ({ page }) => {
+  // A fake standard pad behind navigator.getGamepads(): the real host sees it
+  // too, so this also records what the host itself does with a pad (does it
+  // look around with the right stick, does A stand the pilot up).
+  await installFakePad(page)
+  await kioskStart(page)
+  const cam0 = (await lastBeacon(page))!.cam!.quat
+  await setPad(page, { on: true, axes: [0.8, 0.8, 0, 0] })
+  const s = await waitForBeacon(page, (b) => b.pad.active && b.ctlOwner === 'gamepad' && !!b.ctl && b.ctl[1] > 0.4 && b.ctl[2] > 0.4, 8_000, 'pad stick: right + back')
+  console.log(`[pad:prod stick] ail ${s.ctl![1].toFixed(2)} elv ${s.ctl![2].toFixed(2)}`)
+  await setPad(page, { axes: [0, 0, 0.9, 0] })
+  const r = await waitForBeacon(page, (b) => !!b.ctl && b.ctl[11] === 1 && b.ctl[3] < -0.5, 8_000, 'pad rudder')
+  await page.waitForTimeout(1000)
+  const cam1 = (await lastBeacon(page))!.cam!.quat
+  const dot = Math.abs(cam0[0] * cam1[0] + cam0[1] * cam1[1] + cam0[2] * cam1[2] + cam0[3] * cam1[3])
+  console.log(`[pad:prod rudder] block ${r.ctl![3].toFixed(2)}; camera turned ${(2 * Math.acos(Math.min(1, dot)) * 180 / Math.PI).toFixed(1)} deg while the sticks were held (host look, if any)`)
+  await setPad(page, { axes: [0, 0, 0, 0] })
+  await waitForBeacon(page, (b) => !b.pad.active && !!b.ctl && b.ctl[11] === 0, 8_000, 'pad released')
+  await setPad(page, { buttons: { 7: 1 } })
+  const t = await waitForBeacon(page, (b) => !!b.flight && b.flight[7] > 0.4, 10_000, 'RT raises the throttle')
+  await setPad(page, { buttons: { 7: 0 } })
+  await waitForBeacon(page, (b) => !!b.ctl && b.ctl[6] === 0, 8_000, 'throttle back to the keys')
+  console.log(`[pad:prod throttle] ${t.flight![7].toFixed(2)}`)
+  // A held for 2 s: the fire key goes out once, and the host must not take it for "stand up".
+  const k0 = (await lastBeacon(page))!.pad.keys
+  await setPad(page, { buttons: { 0: 1 } })
+  await page.waitForTimeout(2000)
+  await setPad(page, { buttons: { 0: 0 } })
+  const a = (await lastBeacon(page))!
+  console.log(`[pad:prod A held 2 s] keys ${k0} -> ${a.pad.keys} (last ${a.pad.lastKey}), seat ${a.seat}`)
+  expect(a.pad.keys).toBe(k0 + 1)
+  expect(a.seat).toBe('ysfx-cockpit')
+  await page.screenshot({ path: test.info().outputPath('pc-pad.png') })
+  await keepAuth(page.context(), resolve(import.meta.dirname, '.auth/xrift.json'))
+})
+
 test('trace: aircraft, camera and body frame by frame at speed', async ({ page }) => {
   test.skip(!process.env.YSFX_TRACE, 'measurement only')
   test.setTimeout(300_000)

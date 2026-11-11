@@ -97,6 +97,7 @@ export interface Beacon {
   view?: number
   console: Array<{ id: string; pos: number[] }> | null
   mouse: { enabled: boolean; grabbed: boolean; ail: number; elv: number; grabs: number }
+  pad: { connected: boolean; id: string; standard: boolean; active: boolean; ail: number; elv: number; rud: number; throttling: boolean; keys: number; lastKey: string }
   gates: { coarse: boolean; xr: boolean }
 }
 
@@ -215,4 +216,32 @@ export async function keepAuth(context: import('@playwright/test').BrowserContex
     fs.writeFileSync(authFile, JSON.stringify(state, null, 2))
     console.log(`[auth] session renewed: refresh token now good for ${((fresh - Date.now() / 1000) / 86400).toFixed(1)} days`)
   } else console.log(`[auth] saved session kept: refresh token good for ${((saved - Date.now() / 1000) / 86400).toFixed(1)} days`)
+}
+
+/**
+ * A standard-mapping gamepad the test drives: navigator.getGamepads() returns
+ * one pad whose axes and buttons are whatever setPad() last wrote.  Call
+ * before page.goto (init script).
+ */
+export async function installFakePad(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const st = { axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => 0), on: false }
+    ;(window as unknown as { __fakePad: typeof st }).__fakePad = st
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: () => st.on ? [{
+        id: 'Fake Standard Pad', index: 0, connected: true, mapping: 'standard', timestamp: performance.now(),
+        axes: st.axes.slice(), buttons: st.buttons.map((v) => ({ pressed: v > 0.5, touched: v > 0, value: v })),
+      }] : [],
+    })
+  })
+}
+
+export async function setPad(page: Page, patch: { axes?: number[]; buttons?: Record<number, number>; on?: boolean }): Promise<void> {
+  await page.evaluate((p) => {
+    const st = (window as unknown as { __fakePad: { axes: number[]; buttons: number[]; on: boolean } }).__fakePad
+    if (p.on !== undefined) st.on = p.on
+    if (p.axes) st.axes = p.axes
+    if (p.buttons) for (const [i, v] of Object.entries(p.buttons)) st.buttons[Number(i)] = v
+  }, patch)
 }

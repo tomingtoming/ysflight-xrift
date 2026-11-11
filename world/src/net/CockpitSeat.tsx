@@ -19,6 +19,7 @@ import { Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { controlBus } from '../engine/controlBus'
 import { onBeforeEngineDraw, setPiloting, useEngine } from '../engine/engineStore'
 import { frameClock } from '../engine/frameClock'
+import { padStatus, releaseGamepad, updateGamepad } from '../engine/gamepadStick'
 import { isKeyDown } from '../engine/keyBridge'
 import { mouseStick, setMouseStickEnabled } from '../engine/mouseStick'
 import { StickMarker } from './StickMarker'
@@ -77,6 +78,7 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
   const camPos = useRef(new Vector3())
   const mouseWas = useRef(false)
   const mouseOwner = useRef(false)
+  const padOwner = useRef(false)
   const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   const seatedRef = useRef(false)
   const flyingRef = useRef(false)
@@ -152,7 +154,7 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
   }, [])
 
   const onControlInput = useCallback((input: SeatControlInput, delta: number) => {
-    if (!mod || !flyingRef.current || saccStatus.active || mouseStick.grabbed) return // VR hands / the mouse stick fly the aircraft
+    if (!mod || !flyingRef.current || saccStatus.active || mouseStick.grabbed || padStatus.active) return // VR hands / the mouse stick / a gamepad fly the aircraft
     const st = stickRef.current
     const step = STICK_RATE * Math.max(delta, 0)
     const toward = (v: number, target: number) => v + Math.max(-step, Math.min(step, target - v))
@@ -220,6 +222,14 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
       mouseWas.current = false
       releaseStick()
     }
+    // Gamepad: any pointer type, outside XR (the XR controllers are the hands' there).
+    const pad = seatedRef.current && flyingRef.current && !gl.xr?.isPresenting
+    if (pad) {
+      padOwner.current = true
+      const had = padStatus.active
+      updateGamepad(mod, dt, mod.HEAPF32[(mod._FsVrFlightDataPointer() >> 2) + 7])
+      if (had && !padStatus.active) releaseStick() // the keyboard stick starts again from neutral
+    } else if (padOwner.current) { padOwner.current = false; releaseGamepad(mod) }
     let airIndex = -1
     if (flying) {
       airIndex = findAircraftByPilot(mod, pilotNameOf(localUser ?? { id: 'local', displayName: 'pilot' }))
@@ -399,6 +409,7 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
   }, [mod, gl, users])
 
   useEffect(() => () => endLocalFlight(), [endLocalFlight])
+  useEffect(() => () => { if (padOwner.current) { padOwner.current = false; releaseGamepad(mod) } }, [mod])
 
   const seatPos: [number, number, number] = [cockpit[0], cockpit[1] - eye.dy, cockpit[2] - eye.dz]
   return (

@@ -3,9 +3,9 @@
  * (fsvr.h FsVrControlDataPointer), and the one place that decides which input
  * source owns which axis.
  *
- * Five sources can fly the aircraft: the engine's own keyboard, the host's
+ * Six sources can fly the aircraft: the engine's own keyboard, the host's
  * two-axis seat input (WASD/arrows on a desktop, the joystick on a phone),
- * the mouse stick, the VR hands, the phone's switch panel.  Each used to poke
+ * the mouse stick, a gamepad, the VR hands, the phone's switch panel.  Each used to poke
  * the block's floats itself, and every pairing that nobody had thought about
  * became a bug: Q/A throttle dead, A rolling left, the keyboard dead but for
  * Tab, Z/X/C rudder dead (2026-11-08..10).  All four were the same mistake --
@@ -19,8 +19,10 @@
  *                               frame; none -> springs to neutral once any
  *                               source has ever claimed (the engine's keys
  *                               never get these axes back while seated).
- *   rudder                      only a stick with a yaw axis (the VR twist)
- *                               owns it.  Otherwise the engine's Z/X/C keys do.
+ *   rudder                      only a stick with a yaw axis owns it: the VR
+ *                               twist from its first use until the session
+ *                               ends, a gamepad's right stick for the frames
+ *                               it claims.  Otherwise the engine's Z/X/C keys do.
  *   throttle                    a lever: stays where it was last put, owned
  *                               by the block from the first touch until
  *                               `throttleToKeys` hands it back to Q/A.
@@ -118,7 +120,7 @@ export const controlBus = {
     if (owner) {
       const o = claims[owner]
       stickOwned = true
-      if (o.yaw) rudOwned = true
+      if (o.yaw && owner === 'vr') rudOwned = true
       f[c + CTL.STICK_HELD] = 1
       f[c + CTL.AIL] = o.ail
       f[c + CTL.ELV] = o.elv
@@ -130,7 +132,7 @@ export const controlBus = {
       f[c + CTL.RUD] = 0
     }
     f[c + CTL.STICK_OWNED] = stickOwned ? 1 : 0
-    f[c + CTL.RUD_OWNED] = rudOwned ? 1 : 0
+    f[c + CTL.RUD_OWNED] = rudOwned || (owner !== null && claims[owner].yaw) ? 1 : 0
     if (parkClaim) {
       f[c + CTL.THR_HELD] = 0
       f[c + CTL.THR] = 0
