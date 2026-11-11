@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { controlBus } from '../engine/controlBus'
 import { onBeforeEngineDraw, setPiloting, useEngine } from '../engine/engineStore'
+import { releaseFire, setFire } from '../engine/fireKey'
 import { frameClock } from '../engine/frameClock'
 import { padStatus, releaseGamepad, updateGamepad } from '../engine/gamepadStick'
 import { isKeyDown } from '../engine/keyBridge'
@@ -79,6 +80,7 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
   const mouseWas = useRef(false)
   const mouseOwner = useRef(false)
   const padOwner = useRef(false)
+  const mouseFireWas = useRef(false)
   const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   const seatedRef = useRef(false)
   const flyingRef = useRef(false)
@@ -131,6 +133,7 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
     setPiloting(false)
     setHudOn(false)
     releaseStick()
+    releaseFire(mod)
     mod?._YsfxReleaseAllKeys()
     // Outside view for the parked aircraft -- only while the engine still
     // flies it.  Once the flight is over the engine is in its standby, where
@@ -215,6 +218,9 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
     const own = seatedRef.current && flyingRef.current && !isCoarsePointer() && !gl.xr?.isPresenting
     if (own && !mouseOwner.current) { mouseOwner.current = true; setMouseStickEnabled(true) }
     else if (!own && mouseOwner.current) { mouseOwner.current = false; setMouseStickEnabled(false) }
+    // Right mouse button = trigger.  Only the owning seat speaks for the mouse, and it says so on edges only.
+    const mouseFire = mouseOwner.current && mouseStick.fire
+    if (mouseFire !== mouseFireWas.current) { mouseFireWas.current = mouseFire; setFire(mod, 'mouse', mouseFire) }
     if (own && mouseStick.grabbed) {
       controlBus.stick('mouse', mouseStick.ail, mouseStick.elv)
       mouseWas.current = true

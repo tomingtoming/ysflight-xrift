@@ -11,6 +11,9 @@
  * capture phase runs before the host's document listener), so the view
  * stays put.
  *
+ * The right button is the trigger: held, it fires (the seat passes `fire`
+ * on to engine/fireKey.ts).  The context menu is kept away while enabled.
+ *
  * Installed at module load like keyBridge; the seats enable it while the
  * local player flies on a fine-pointer device outside XR.
  */
@@ -24,6 +27,8 @@ export const mouseStick = {
   /** -1..+1, nose up positive (mouse pushed away = stick forward = negative). */
   elv: 0,
   grabs: 0,
+  /** The right button is down. */
+  fire: false,
 }
 
 let accX = 0
@@ -37,6 +42,7 @@ export function setMouseStickEnabled(on: boolean): void {
 }
 
 function release(): void {
+  mouseStick.fire = false
   mouseStick.grabbed = false
   mouseStick.ail = 0
   mouseStick.elv = 0
@@ -49,6 +55,7 @@ export function installMouseStick(): void {
   installed = true
   const opts = { capture: true }
   window.addEventListener('mousedown', (e) => {
+    if (e.button === 2 && mouseStick.enabled) { mouseStick.fire = true; return }
     if (e.button !== 0 || !mouseStick.enabled) return
     accX = 0
     accY = 0
@@ -64,8 +71,10 @@ export function installMouseStick(): void {
     e.stopPropagation() // the host must not turn this into a look
   }, opts)
   window.addEventListener('mouseup', (e) => {
-    if (e.button === 0 && mouseStick.grabbed) release()
+    if (e.button === 2) mouseStick.fire = false
+    else if (e.button === 0 && mouseStick.grabbed) { const f = mouseStick.fire; release(); mouseStick.fire = f }
   }, opts)
+  window.addEventListener('contextmenu', (e) => { if (mouseStick.enabled) e.preventDefault() }, opts)
   window.addEventListener('blur', release)
 }
 

@@ -24,6 +24,7 @@ import { engineBuildId } from '../engine/loadEngine'
 import { saccStatus } from '../vr/saccControls'
 import { mouseStick } from '../engine/mouseStick'
 import { padStatus } from '../engine/gamepadStick'
+import { fireStatus } from '../engine/fireKey'
 import { isCoarsePointer } from './TouchConsole'
 
 export interface YsfxBeacon {
@@ -81,8 +82,10 @@ export interface YsfxBeacon {
   /** Phone switch panel button centres (TouchConsole), null when not shown. */
   console: Array<{ id: string; pos: number[] }> | null
   /** Mouse stick (engine/mouseStick.ts): enabled while flying on desktop, grabbed while the left button is held. */
-  mouse: { enabled: boolean; grabbed: boolean; ail: number; elv: number; grabs: number }
+  mouse: { enabled: boolean; grabbed: boolean; ail: number; elv: number; grabs: number; fire: boolean }
   /** Gamepad (engine/gamepadStick.ts): what the pad holds this frame and the engine keys it has sent. */
+  /** The engine's fire key (engine/fireKey.ts): held now, and how many times it went down. */
+  fire: { held: boolean; presses: number }
   pad: { connected: boolean; id: string; standard: boolean; active: boolean; ail: number; elv: number; rud: number; throttling: boolean; keys: number; lastKey: string }
   /** Input device gates: coarse pointer (phone panel), XR presenting (hands). */
   gates: { coarse: boolean; xr: boolean }
@@ -185,6 +188,7 @@ export function StateBeacon({ role, room, field }: { role: NetRole | null; room:
       console: consoleButtons,
       mouse: { ...mouseStick },
       pad: { ...padStatus },
+      fire: { ...fireStatus },
       gates: { coarse: isCoarsePointer(), xr: !!gl.xr?.isPresenting },
       cam: { pos: v.current.toArray(), quat: q.current.toArray() },
       keys: { n: ysfxStats.keys, last: ysfxStats.lastKey },

@@ -349,12 +349,33 @@ test('desktop: carrier start; leaving the seat on the deck, the pilot stands on 
 // the simulation has the aircraft, where the host has the camera, where it
 // has the body.  Run headed on a 120 Hz display, or with YSFX_ARGS to lift
 // the frame-rate cap, to see what a pilot on such a display sees.
-test('desktop: a gamepad flies the aircraft on the real host (stick, rudder, trigger throttle, fire); the pilot stays seated', async ({ page }) => {
+test('desktop: Shift and the right button fire; a gamepad flies the aircraft on the real host (stick, rudder, trigger throttle, fire); the pilot stays seated', async ({ page }) => {
   // A fake standard pad behind navigator.getGamepads(): the real host sees it
   // too, so this also records what the host itself does with a pad (does it
   // look around with the right stick, does A stand the pilot up).
   await installFakePad(page)
-  await kioskStart(page)
+  const { cur } = await kioskStart(page)
+  // Keyboard and mouse first: Shift and the right button fire (Space is the
+  // host's "stand up"), and the host must leave the pilot seated through both.
+  const gun = (b: { hud: string[] | null }) => Number(/GUN\s+(\d+)/.exec((b.hud ?? []).join(' '))?.[1] ?? NaN)
+  const g0 = gun((await lastBeacon(page))!)
+  await page.keyboard.down('Shift')
+  await waitForBeacon(page, (b) => b.fire.held, 5_000, 'Shift holds the fire key')
+  await page.waitForTimeout(700)
+  await page.keyboard.up('Shift')
+  const g1 = gun(await waitForBeacon(page, (b) => !b.fire.held, 5_000, 'Shift released'))
+  await page.mouse.move(cur.mx, cur.my)
+  await page.mouse.down({ button: 'right' })
+  await waitForBeacon(page, (b) => b.fire.held && b.mouse.fire, 5_000, 'right button holds the fire key')
+  await page.waitForTimeout(700)
+  await page.mouse.up({ button: 'right' })
+  await waitForBeacon(page, (b) => !b.fire.held, 5_000, 'right button released')
+  await page.waitForTimeout(600)
+  const f = (await lastBeacon(page))!
+  console.log(`[fire:prod] gun rounds ${g0} -> Shift -> ${g1} -> right button -> ${gun(f)}; seat ${f.seat}, pointer lock ${await page.evaluate(() => !!document.pointerLockElement)}`)
+  expect(g1).toBeLessThan(g0)
+  expect(gun(f)).toBeLessThan(g1)
+  expect(f.seat).toBe('ysfx-cockpit')
   const cam0 = (await lastBeacon(page))!.cam!.quat
   await setPad(page, { on: true, axes: [0.8, 0.8, 0, 0] })
   const s = await waitForBeacon(page, (b) => b.pad.active && b.ctlOwner === 'gamepad' && !!b.ctl && b.ctl[1] > 0.4 && b.ctl[2] > 0.4, 8_000, 'pad stick: right + back')

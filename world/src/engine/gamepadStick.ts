@@ -35,6 +35,7 @@
  * keys when both are released, at the value it was left.
  */
 import { controlBus } from './controlBus'
+import { setFire } from './fireKey'
 import type { YsflightModule } from './types'
 
 const STICK_DEADZONE = 0.12
@@ -101,7 +102,8 @@ function findPad(): Gamepad | null {
 }
 
 function key(mod: YsflightModule, code: string, down: boolean): void {
-  mod.ccall('YsfxKeyByCode', 'number', ['string', 'number'], [code, down ? 1 : 0])
+  if (code === 'Space') setFire(mod, 'gamepad', down) // shared with Shift and the right mouse button
+  else mod.ccall('YsfxKeyByCode', 'number', ['string', 'number'], [code, down ? 1 : 0])
   if (down) { padStatus.keys++; padStatus.lastKey = code }
 }
 

@@ -8,7 +8,7 @@
  * the uikit panels it can use any glyph.
  *
  * What is written here is a copy of the bindings as implemented --
- * loadEngine.ts (key table), mouseStick.ts, gamepadStick.ts,
+ * loadEngine.ts (key table), YsflightEngine.tsx (Shift), mouseStick.ts, gamepadStick.ts,
  * vr/saccControls.ts, TouchConsole.tsx.  Change a binding there, change the
  * drawing here.
  */
@@ -97,7 +97,7 @@ function drawPc(c: Ctx, x0: number, y0: number): void {
   row(1, 1.5, [['Q', ['スロットル', '上げ']], ['W'], ['E'], ['R', ['フラップ', '上げ']], ['T']])
   keycap(c, kx, ky + 2 * P, 1.75 * P - 10, K, 'Caps')
   row(2, 1.75, [['A', ['スロットル', '下げ']], ['S'], ['D'], ['F', ['フラップ', '下げ']], ['G', ['脚']]])
-  keycap(c, kx, ky + 3 * P, 2.25 * P - 10, K, 'Shift')
+  keycap(c, kx, ky + 3 * P, 2.25 * P - 10, K, 'Shift', ['射撃'])
   row(3, 2.25, [['Z', ['ラダー', '左']], ['X', ['ラダー', '中央']], ['C', ['ラダー', '右']], ['V'], ['B', ['ブレーキ']]])
   // space bar
   rr(c, kx + 2.25 * P, ky + 4 * P, 5 * P - 10, 84, 12, KEY_ON, KEY_ON_LINE)
@@ -118,7 +118,7 @@ function drawPc(c: Ctx, x0: number, y0: number): void {
   c.roundRect(mx, my, 170, 250, 80)
   c.clip()
   c.fillStyle = KEY_ON
-  c.fillRect(mx, my, 85, 105) // left button
+  c.fillRect(mx, my, 170, 105) // both buttons do something
   c.restore()
   rr(c, mx, my, 170, 250, 80, undefined, BODY_LINE)
   c.strokeStyle = BODY_LINE
@@ -144,6 +144,8 @@ function drawPc(c: Ctx, x0: number, y0: number): void {
   lead(c, mx + 40, my + 50, mx - 38, my + 50)
   tag(c, mx - 50, my + 36, '左ボタンを押している間', ['マウスの動きが', 'ピッチ / ロール'], 'right')
   text(c, '離すと中立に戻る', mx - 50, my + 36 + 38 + 2 * 34 + 8, 26, DIM, 'right')
+  lead(c, mx + 130, my + 60, mx + 130, my - 30)
+  text(c, '右ボタン： 射撃', mx + 196, my - 46, 30, TEXT, 'right', true)
 }
 
 // ---- gamepad ----------------------------------------------------------------

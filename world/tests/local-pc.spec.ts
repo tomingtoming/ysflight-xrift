@@ -77,6 +77,28 @@ test('kiosk start -> join -> keyboard stick, mouse stick, throttle and HUD', asy
   await page.mouse.up()
   await waitForBeacon(page, (b) => !b.mouse.grabbed && !!b.ctl && Math.abs(b.ctl[1]) < 0.05 && Math.abs(b.ctl[2]) < 0.05, 5_000, 'mouse stick released')
 
+  // Fire: Shift and the right mouse button hold the engine's fire key (Space
+  // itself is the host's "stand up").  The gun's round count on the HUD drops.
+  const gun = (b: { hud: string[] | null }) => Number(/GUN\s+(\d+)/.exec((b.hud ?? []).join(' '))?.[1] ?? NaN)
+  const g0 = gun((await lastBeacon(page))!)
+  await page.keyboard.down('Shift')
+  await waitForBeacon(page, (b) => b.fire.held, 5_000, 'Shift holds the fire key')
+  await page.waitForTimeout(700)
+  await page.keyboard.up('Shift')
+  const s1 = await waitForBeacon(page, (b) => !b.fire.held, 5_000, 'Shift released')
+  const g1 = gun(s1)
+  await page.mouse.down({ button: 'right' })
+  await waitForBeacon(page, (b) => b.fire.held && b.mouse.fire, 5_000, 'right button holds the fire key')
+  await page.waitForTimeout(700)
+  await page.mouse.up({ button: 'right' })
+  const s2 = await waitForBeacon(page, (b) => !b.fire.held, 5_000, 'right button released')
+  await page.waitForTimeout(600)
+  const g2 = gun((await lastBeacon(page))!)
+  console.log(`[fire] gun rounds ${g0} -> Shift 0.7 s -> ${g1} -> right button 0.7 s -> ${g2}; presses ${s2.fire.presses}`)
+  expect(g1).toBeLessThan(g0)
+  expect(g2).toBeLessThan(g1)
+  expect(s2.seat).toBe('ysfx-cockpit')
+
   // Throttle via the keyboard path (Q) raises speed.
   for (let i = 0; i < 20; i++) await page.keyboard.press('q')
   const moving = await waitForBeacon(page, (b) => !!b.flight && b.flight[1] * 3.6 > 5, 20_000, 'speed > 5 km/h')

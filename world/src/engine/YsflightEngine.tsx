@@ -23,6 +23,7 @@ import { createEngine } from './loadEngine'
 import { loadStatusLine, setLoad } from './loadStore'
 import { isPiloting, runBeforeEngineDraw, setEngine, setHudTexture } from './engineStore'
 import { createHudTarget, type HudTarget } from './hudTarget'
+import { releaseFire, setFire } from './fireKey'
 import { subscribeKeys } from './keyBridge'
 import type { YsflightModule } from './types'
 
@@ -117,8 +118,11 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
     // external-view host, and an open dialog swallows every other key.
     const RESERVED = new Set(['Space', 'Escape', 'Enter', 'NumpadEnter', 'Backspace'])
     const reserved = (e: KeyboardEvent) => RESERVED.has(e.code)
+    // Shift fires: Space, the engine's fire key, is the host's (above).
+    const fires = (e: KeyboardEvent) => e.code === 'ShiftLeft' || e.code === 'ShiftRight'
     const down = (e: KeyboardEvent) => {
       if (isTyping(e.target) || !isPiloting() || reserved(e)) return
+      if (fires(e)) { setFire(mod, e.code, true); return }
       const fs = key(e.code, 1) as number
       ysfxStats.keys++
       ysfxStats.lastKey = `${e.code}->${fs}`
@@ -132,9 +136,10 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
     }
     const up = (e: KeyboardEvent) => {
       if (isTyping(e.target) || reserved(e)) return
+      if (fires(e)) { setFire(mod, e.code, false); return }
       key(e.code, 0) // always allowed: releases a key pressed before the gate closed
     }
-    const blur = () => mod._YsfxReleaseAllKeys()
+    const blur = () => { releaseFire(null); mod._YsfxReleaseAllKeys() }
     return subscribeKeys(down, up, blur)
   }, [mod, keyboard])
 

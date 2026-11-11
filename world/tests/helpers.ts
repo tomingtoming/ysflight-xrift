@@ -96,7 +96,8 @@ export interface Beacon {
   /** The engine's main-window view mode (FSCOCKPITVIEW = 0). */
   view?: number
   console: Array<{ id: string; pos: number[] }> | null
-  mouse: { enabled: boolean; grabbed: boolean; ail: number; elv: number; grabs: number }
+  mouse: { enabled: boolean; grabbed: boolean; ail: number; elv: number; grabs: number; fire: boolean }
+  fire: { held: boolean; presses: number }
   pad: { connected: boolean; id: string; standard: boolean; active: boolean; ail: number; elv: number; rud: number; throttling: boolean; keys: number; lastKey: string }
   gates: { coarse: boolean; xr: boolean }
 }
