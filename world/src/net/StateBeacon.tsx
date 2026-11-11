@@ -25,6 +25,7 @@ import { saccStatus } from '../vr/saccControls'
 import { mouseStick } from '../engine/mouseStick'
 import { padStatus } from '../engine/gamepadStick'
 import { fireStatus } from '../engine/fireKey'
+import { voiceStatus } from './VoiceForAll'
 import { isCoarsePointer } from './TouchConsole'
 
 export interface YsfxBeacon {
@@ -86,6 +87,8 @@ export interface YsfxBeacon {
   /** Gamepad (engine/gamepadStick.ts): what the pad holds this frame and the engine keys it has sent. */
   /** The engine's fire key (engine/fireKey.ts): held now, and how many times it went down. */
   fire: { held: boolean; presses: number }
+  /** Remote users this client has made audible regardless of distance (net/VoiceForAll.tsx). */
+  voice: number
   pad: { connected: boolean; id: string; standard: boolean; active: boolean; ail: number; elv: number; rud: number; throttling: boolean; keys: number; lastKey: string }
   /** Input device gates: coarse pointer (phone panel), XR presenting (hands). */
   gates: { coarse: boolean; xr: boolean }
@@ -189,6 +192,7 @@ export function StateBeacon({ role, room, field }: { role: NetRole | null; room:
       mouse: { ...mouseStick },
       pad: { ...padStatus },
       fire: { ...fireStatus },
+      voice: voiceStatus.overrides,
       gates: { coarse: isCoarsePointer(), xr: !!gl.xr?.isPresenting },
       cam: { pos: v.current.toArray(), quat: q.current.toArray() },
       keys: { n: ysfxStats.keys, last: ysfxStats.lastKey },

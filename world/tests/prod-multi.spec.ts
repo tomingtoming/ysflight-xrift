@@ -128,6 +128,11 @@ test('two pilots in one instance: host + client, client sees the host aircraft',
 
   // Host flies from the kiosk; the client must see that aircraft.
   await kioskStart(host)
+  // Voice: each side has asked the real host to make the other audible at any distance (net/VoiceForAll.tsx).
+  // What is checked is the request; nobody listens in a test.
+  const hv = await waitForBeacon(host, (x) => x.voice >= 1, 20_000, 'host: voice override for the guest')
+  const gv = await waitForBeacon(b, (x) => x.voice >= 1, 20_000, 'guest: voice override for the host')
+  console.log(`[multi voice] overrides: host ${hv.voice}, guest ${gv.voice}`)
   const hf = await waitForBeacon(host, (x) => !!x.net && x.net.state === NET_FLYING && x.seat === 'ysfx-cockpit', 40_000, 'host flying')
   const hostAir = hf.aircraft.find((x) => x.player)
   console.log(`[multi] host aircraft: ${JSON.stringify(hostAir)}`)

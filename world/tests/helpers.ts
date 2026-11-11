@@ -98,6 +98,7 @@ export interface Beacon {
   console: Array<{ id: string; pos: number[] }> | null
   mouse: { enabled: boolean; grabbed: boolean; ail: number; elv: number; grabs: number; fire: boolean }
   fire: { held: boolean; presses: number }
+  voice: number
   pad: { connected: boolean; id: string; standard: boolean; active: boolean; ail: number; elv: number; rud: number; throttling: boolean; keys: number; lastKey: string }
   gates: { coarse: boolean; xr: boolean }
 }
