@@ -385,6 +385,19 @@ test('desktop: a gamepad flies the aircraft on the real host (stick, rudder, tri
   await keepAuth(page.context(), resolve(import.meta.dirname, '.auth/xrift.json'))
 })
 
+test('desktop: the controls sign stands left of the kiosk (screenshot for the eye)', async ({ page }) => {
+  await watchBeacon(page)
+  await enterWorld(page, WORLD_URL)
+  await waitForBeacon(page, (x) => x.role !== null && !!x.net && x.net.ready && !!x.apron && !!x.kioskBtn, 150_000, 'session ready, apron placed')
+  await page.mouse.click(640, 360)
+  await page.waitForTimeout(800)
+  expect(await page.evaluate(() => !!document.pointerLockElement)).toBe(true)
+  await page.mouse.move(640 - 33 / DEG_PER_PX, 360, { steps: 15 }) // look 33 deg left
+  await page.waitForTimeout(1200)
+  await page.screenshot({ path: test.info().outputPath('pc-sign.png') })
+  await keepAuth(page.context(), resolve(import.meta.dirname, '.auth/xrift.json'))
+})
+
 test('trace: aircraft, camera and body frame by frame at speed', async ({ page }) => {
   test.skip(!process.env.YSFX_TRACE, 'measurement only')
   test.setTimeout(300_000)

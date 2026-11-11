@@ -233,12 +233,12 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
         <Container flexDirection="row" alignItems="center" gap={10}>
           <Container width={70} height={48} backgroundColor={0x444444} borderRadius={8} justifyContent="center" alignItems="center"
             hover={{ backgroundColor: 0x666666 }} cursor="pointer" onClick={(e) => { if (deliberate(e)) onPage((page + pages - 1) % pages) }}>
-            <Text fontSize={30} color={0xffffff}>◀</Text>
+            <Text fontSize={30} color={0xffffff}>{'<'}</Text>
           </Container>
           <Text fontSize={26} color={0xcccccc}>{`${page + 1}/${pages}`}</Text>
           <Container width={70} height={48} backgroundColor={0x444444} borderRadius={8} justifyContent="center" alignItems="center"
             hover={{ backgroundColor: 0x666666 }} cursor="pointer" onClick={(e) => { if (deliberate(e)) onPage((page + 1) % pages) }}>
-            <Text fontSize={30} color={0xffffff}>▶</Text>
+            <Text fontSize={30} color={0xffffff}>{'>'}</Text>
           </Container>
         </Container>
       </Container>
@@ -257,7 +257,7 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
     <group ref={groupRef} position={position} rotation={rot}>
       <Container sizeX={W * PX} sizeY={H * PX} pixelSize={PX} backgroundColor={0x101418} borderRadius={20} padding={28}
         flexDirection="column" gap={18} fontFamilies={fontFamilies}>
-        <Text fontSize={40} color={0xffffff} fontFamily="ja">{`YSFLIGHT 対戦ロビー — ${field}`}</Text>
+        <Text fontSize={40} color={0xffffff} fontFamily="ja">{`YSFLIGHT 対戦ロビー - ${field}`}</Text>
         <Text fontSize={28} color={0xa0c8ff} fontFamily="ja">{status}</Text>
         <Container flexDirection="row" gap={28} flexGrow={1}>
           {list('機体', airs, pageAir, airPages, selAir, setSelAir, setPageAir)}
