@@ -152,9 +152,11 @@ test('kiosk start boards the cockpit seat, standing up leaves', async ({ page })
   const trail = ((settled.lag!.lagMs + settled.lag!.dtMs) / 1000) * settled.lag!.speed
   console.log(`[kiosk body] feet-to-seat ${gap.toFixed(2)} m, body lag + beacon frame ${trail.toFixed(2)} m at ${settled.lag!.speed.toFixed(0)} m/s`)
   expect(Math.abs(gap - trail)).toBeLessThan(0.6)
-  // First person draws on time (no delay).  Force the VR / third-person path:
+  // Desktop, any view: the drawn aircraft, the HUD and the camera are shifted together onto the late body
+  // (CockpitSeat, 'all'), so the visuals are already off the simulated pose here.  Then force the VR path:
   // the drawn aircraft and the HUD go back by the body's lag, i.e. onto the body.
-  expect(settled.lag!.visOn).toBe(false)
+  expect(settled.lag!.visOn).toBe(true)
+  expect(settled.lag!.anchored).toBe(true)
   await page.evaluate(() => (window as unknown as { __ysfxBodyLag: (n: number, f: boolean) => string }).__ysfxBodyLag(1, true))
   await page.waitForTimeout(1500)
   const delayed = await waitForBeacon(page, (b) => !!b.lag && b.lag.visOn && Math.abs(b.lag.eFrames) < 0.3, 10_000, 'visuals delayed onto the body')

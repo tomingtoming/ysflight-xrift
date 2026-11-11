@@ -40,11 +40,14 @@ export function useEngine(): YsflightModule | null {
 // actually be drawn from can be read (net/CockpitSeat.tsx anchors to it).
 import type { Camera } from 'three'
 const beforeDraw = new Set<(camera: Camera) => void>()
-export function onBeforeEngineDraw(fn: (camera: Camera) => void): () => void {
-  beforeDraw.add(fn)
-  return () => { beforeDraw.delete(fn) }
+const beforeDrawLate = new Set<(camera: Camera) => void>()
+/** `late`: after every ordinary subscriber (observers that record what the others decided). */
+export function onBeforeEngineDraw(fn: (camera: Camera) => void, late = false): () => void {
+  const set = late ? beforeDrawLate : beforeDraw
+  set.add(fn)
+  return () => { set.delete(fn) }
 }
-export function runBeforeEngineDraw(camera: Camera): void { beforeDraw.forEach((f) => f(camera)) }
+export function runBeforeEngineDraw(camera: Camera): void { beforeDraw.forEach((f) => f(camera)); beforeDrawLate.forEach((f) => f(camera)) }
 
 // ---- piloting gate -------------------------------------------------------
 // Keyboard input is forwarded to the engine only while the local user sits

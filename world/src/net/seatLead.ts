@@ -82,6 +82,26 @@ export function setDevBodyLag(frames: number, forceDelay = false, stepHz = 0): v
 /** Dev only: treat the desktop first-person view as one whose eye rides the body. */
 export function devForceDelay(): boolean { return devForce }
 
+/** Where the own aircraft is drawn this frame when that is not the simulated pose (for FrameTrace). */
+export const renderVisual = { on: false, x: 0, y: 0, z: 0 }
+
+/**
+ * How a desktop pilot's view is tied to the late body (CockpitSeat):
+ *   'all'    camera and own-ship visuals shift with the body in every desktop view
+ *   'third'  only when the camera is away from the cockpit eye point
+ *   'legacy' v48..v77: visuals anchored to the body outside first person, camera left alone
+ * `window.__ysfxCamAnchor` overrides it at run time (measurement only).
+ */
+export type CamAnchor = 'all' | 'third' | 'legacy'
+// Production trace at ~117 m/s, uncapped frame rate (2026-11-12): 'legacy' leaves the avatar sliding against the
+// camera by 70..80 cm RMS frame to frame in first and third person alike; 'all' holds camera, drawn aircraft and
+// avatar together to 0.00 cm, and a burst of screenshots shows the avatar on the same pixels.
+const CAM_ANCHOR_DEFAULT: CamAnchor = 'all'
+export function camAnchor(): CamAnchor {
+  const v = (window as unknown as { __ysfxCamAnchor?: string }).__ysfxCamAnchor
+  return v === 'third' || v === 'legacy' || v === 'all' ? v : CAM_ANCHOR_DEFAULT
+}
+
 function readFeetNow(users: unknown, out: Vector3): Vector3 | null {
   try {
     const u = users as { getLocalMovement?: () => { position?: unknown } | null }
@@ -234,6 +254,8 @@ export class SeatLead {
 
   /** What was handed to the eye this frame: the delayed pose (or the true one, `on` false). */
   reportVisual(on: boolean, visual: Matrix4): void {
+    renderVisual.on = on
+    if (on) { const e = visual.elements; renderVisual.x = e[12]; renderVisual.y = e[13]; renderVisual.z = e[14] }
     this.visOn = on
     this.visBehind = on ? this.d.setFromMatrixPosition(visual).distanceTo(this.pos) : 0
     if (lastLag) { lastLag.visOn = this.visOn; lastLag.visBehindM = this.visBehind }

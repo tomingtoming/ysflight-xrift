@@ -424,16 +424,25 @@ test('trace: aircraft, camera and body frame by frame at speed', async ({ page }
   test.setTimeout(300_000)
   await kioskStart(page)
   if (process.env.YSFX_TRACE_KEY) { await page.keyboard.press(process.env.YSFX_TRACE_KEY); await page.waitForTimeout(500) }
+  if (process.env.YSFX_CAM_ANCHOR) await page.evaluate((v) => { (window as unknown as { __ysfxCamAnchor: string }).__ysfxCamAnchor = v }, process.env.YSFX_CAM_ANCHOR)
+  if (process.env.YSFX_TRACE_WHEEL) { await page.mouse.wheel(0, Number(process.env.YSFX_TRACE_WHEEL)); await page.waitForTimeout(1200) } // third person
   for (let i = 0; i < 25; i++) { await page.keyboard.press('q'); await page.waitForTimeout(40) }
   await page.keyboard.press('Tab')
-  await waitForBeacon(page, (x) => !!x.flight && x.flight[1] > 90, 90_000, 'speed')
+  await waitForBeacon(page, (x) => !!x.flight && x.flight[1] > 55, 90_000, 'speed')
   // Rolling input while the trace runs.
   await page.screenshot({ path: test.info().outputPath('trace-view.png') })
-  await page.keyboard.down('ArrowRight')
-  await page.evaluate(() => { (window as unknown as { __ysfxTrace: number }).__ysfxTrace = 480 })
+  // Straight ahead on the runway: any manoeuvre at this speed ends in a crash and a broken record.
+  // What actually reaches the screen: a burst of screenshots at speed.  If the camera, the drawn aircraft and the
+  // avatar are locked together, the aircraft and the avatar are the same pixels in every shot (compare offline).
+  if (process.env.YSFX_SHOTS) {
+    const fsx = await import('node:fs')
+    fsx.mkdirSync(process.env.YSFX_SHOTS, { recursive: true })
+    for (let i = 0; i < 10; i++) { await page.screenshot({ path: `${process.env.YSFX_SHOTS}/shot-${i}.png` }); await page.waitForTimeout(37) }
+  }
+  await page.evaluate(() => { (window as unknown as { __ysfxTrace: number }).__ysfxTrace = 300 })
   await page.waitForFunction(() => !!(window as unknown as { __ysfxTraceData?: unknown }).__ysfxTraceData, null, { timeout: 60_000 })
   const rows = await page.evaluate(() => (window as unknown as { __ysfxTraceData: number[][] }).__ysfxTraceData)
-  await page.keyboard.up('ArrowRight')
+  { const b = (await lastBeacon(page))!; const d = b.cam && b.cockpit ? Math.hypot(b.cam.pos[0] - b.cockpit[0], b.cam.pos[1] - b.cockpit[1], b.cam.pos[2] - b.cockpit[2]) : NaN; console.log(`[trace] beacon lag ${JSON.stringify(b.lag)}; camera to seat point ${d.toFixed(2)} m; anchor switch ${await page.evaluate(() => String((window as unknown as { __ysfxCamAnchor?: string }).__ysfxCamAnchor))}`) }
   const fs = await import('node:fs')
   fs.writeFileSync(test.info().outputPath('trace.json'), JSON.stringify(rows))
   const n = rows.length
@@ -458,6 +467,11 @@ test('trace: aircraft, camera and body frame by frame at speed', async ({ page }
   console.log(`[trace] frames the body did not move: ${sf.filter((x) => Math.abs(x) < 1e-4).length}/${sf.length}; camera did not move: ${sc.filter((x) => Math.abs(x) < 1e-4).length}/${sc.length}`)
   console.log(`[trace] aircraft ahead of camera, cm: ${fmt(st(lagC), 100)}; frame-to-frame change sd ${(st(dLagC).sd * 100).toFixed(2)}`)
   console.log(`[trace] aircraft ahead of body, cm: ${fmt(st(lagF), 100)}; frame-to-frame change sd ${(st(dLagF).sd * 100).toFixed(2)}`)
+  // What the pilot sees: the drawn own aircraft against the camera, and the avatar (body) against the drawn aircraft.
+  const visC = rows.map((r) => along(r, 19) - along(r, 5)), visF = rows.map((r) => along(r, 19) - along(r, 8))
+  const dVisC = visC.slice(1).map((x, i) => x - visC[i]), dVisF = visF.slice(1).map((x, i) => x - visF[i])
+  const camF = rows.map((r) => along(r, 5) - along(r, 8)), dCamF = camF.slice(1).map((x, i) => x - camF[i])
+  console.log(`[trace] SEEN  cam anchor ${process.env.YSFX_CAM_ANCHOR ?? 'default'}, wheel ${process.env.YSFX_TRACE_WHEEL ?? 0}: drawn aircraft vs camera, frame-to-frame sd ${(st(dVisC).sd * 100).toFixed(2)} cm (max ${(Math.max(...dVisC.map(Math.abs)) * 100).toFixed(1)}); avatar vs drawn aircraft sd ${(st(dVisF).sd * 100).toFixed(2)} cm (max ${(Math.max(...dVisF.map(Math.abs)) * 100).toFixed(1)}); avatar vs camera sd ${(st(dCamF).sd * 100).toFixed(2)} cm (max ${(Math.max(...dCamF.map(Math.abs)) * 100).toFixed(1)})`)
   const ang = (q1: number[], q2: number[]) => { const d = Math.abs(q1[0] * q2[0] + q1[1] * q2[1] + q1[2] * q2[2] + q1[3] * q2[3]); return 2 * Math.acos(Math.min(1, d)) * 180 / Math.PI }
   const rel = rows.slice(1).map((r, i) => ang(r.slice(11, 15), rows[i].slice(11, 15)))
   const air = rows.slice(1).map((r, i) => ang(r.slice(15, 19), rows[i].slice(15, 19)))

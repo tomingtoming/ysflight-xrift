@@ -47,6 +47,7 @@ export default defineConfig({
     { name: 'prod-sp', testMatch: /prod-sp\.spec\.ts/, use: { ...devices['Pixel 7'], channel: 'chrome', storageState: AUTH } },
     { name: 'prod-vr', testMatch: /prod-vr\.spec\.ts/, use: { storageState: AUTH } },
     { name: 'prod-multi', testMatch: /prod-multi\.spec\.ts/, use: { storageState: AUTH } },
+    { name: 'prod-explore', testMatch: /prod-explore\.spec\.ts/, use: { storageState: AUTH } },
   ],
   webServer: process.env.YSFX_NO_SERVERS
     ? undefined

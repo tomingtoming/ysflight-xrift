@@ -13,7 +13,7 @@ import { Matrix4, Quaternion, Vector3 } from 'three'
 import { onBeforeEngineDraw, useEngine } from '../engine/engineStore'
 import { frameClock } from '../engine/frameClock'
 import { airBase, airCount } from './netState'
-import { readFeetAtRender } from './seatLead'
+import { readFeetAtRender, renderVisual } from './seatLead'
 
 type W = { __ysfxTrace?: number; __ysfxTraceData?: number[][] }
 
@@ -45,9 +45,11 @@ export function FrameTrace() {
       // The camera's attitude in the aircraft frame: constant while the pilot does not look around.
       camera.matrixWorld.decompose(t.p, t.qc, t.s)
       t.qc.premultiply(t.qa.clone().invert())
-      rows.push([frameClock.nowMs, performance.now(), a[0], a[1], a[2], cam.current.x, cam.current.y, cam.current.z, p ? p.x : NaN, p ? p.y : NaN, p ? p.z : NaN, t.qc.x, t.qc.y, t.qc.z, t.qc.w, t.qa.x, t.qa.y, t.qa.z, t.qa.w])
+      rows.push([frameClock.nowMs, performance.now(), a[0], a[1], a[2], cam.current.x, cam.current.y, cam.current.z, p ? p.x : NaN, p ? p.y : NaN, p ? p.z : NaN, t.qc.x, t.qc.y, t.qc.z, t.qc.w, t.qa.x, t.qa.y, t.qa.z, t.qa.w,
+        // [19..21] where the own aircraft is drawn (the simulated place unless the seat moved the visuals)
+        renderVisual.on ? renderVisual.x : a[0], renderVisual.on ? renderVisual.y : a[1], renderVisual.on ? renderVisual.z : a[2]])
       if (rows.length >= (w.__ysfxTrace ?? 0)) { w.__ysfxTraceData = rows; rows = null; w.__ysfxTrace = 0 }
-    })
+    }, true) // late: after the seat has moved the camera and the visuals
   }, [mod, users])
   return null
 }

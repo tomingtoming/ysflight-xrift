@@ -15,7 +15,7 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { Seat, useSeatContext, useTeleport, useUsers } from '@xrift/world-components'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Group, Matrix4, Quaternion, Vector3 } from 'three'
+import { type Camera, Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { controlBus } from '../engine/controlBus'
 import { onBeforeEngineDraw, setPiloting, useEngine } from '../engine/engineStore'
 import { releaseFire, setFire } from '../engine/fireKey'
@@ -28,7 +28,7 @@ import { FlightHud } from './FlightHud'
 import { Gunsight, HudGlass } from './HudGlass'
 import { kioskJoinPending, setKioskJoin } from './lobbyStore'
 import { DEFAULT_EYE, EyeCalibrator, type EyeOffset } from './seatEye'
-import { PoseHistory, SeatLead, clearSeatLag, devForceDelay, readFeet, readFeetAtRender } from './seatLead'
+import { PoseHistory, SeatLead, camAnchor, clearSeatLag, devForceDelay, readFeet, readFeetAtRender } from './seatLead'
 import { SaccHands } from '../vr/SaccHands'
 import { TouchConsole, isCoarsePointer } from './TouchConsole'
 import { saccStatus } from '../vr/saccControls'
@@ -75,12 +75,13 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
   const lead = useRef(new SeatLead())
   const history = useRef(new PoseHistory())
   const eyeTmp = useRef(new Vector3())
-  const anchor = useRef({ active: false, mode: false, calN: 0, cal: new Vector3(), seat: new Vector3(), trueM: new Matrix4() })
+  const anchor = useRef({ active: false, mode: false, rigid: false, calN: 0, cal: new Vector3(), seat: new Vector3(), trueM: new Matrix4() })
   const camPos = useRef(new Vector3())
   const mouseWas = useRef(false)
   const mouseOwner = useRef(false)
   const padOwner = useRef(false)
   const mouseFireWas = useRef(false)
+  const camShift = useRef({ cam: null as Camera | null, d: new Vector3() })
   const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   const seatedRef = useRef(false)
   const flyingRef = useRef(false)
@@ -332,10 +333,16 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
     an.trueM.copy(g.matrix)
     an.seat.set(cp[0], cp[1] - e.dy, cp[2] - e.dz)
     an.active = active
-    an.mode = active && (!!gl.xr?.isPresenting || !firstPerson || devForceDelay())
+    // Desktop (see the render-time block below): 'all' ties every view to the
+    // body, 'third' only the views away from the cockpit eye; 'legacy' is v77.
+    const ca = camAnchor()
+    const xr = !!gl.xr?.isPresenting
+    an.rigid = !xr && ca !== 'legacy' && (ca === 'all' || !firstPerson)
+    an.mode = active && (xr || an.rigid || !firstPerson || devForceDelay())
     const now = frameClock.nowMs / 1000
     history.current.push(now, g.matrix)
-    const delay = active && (gl.xr?.isPresenting || !firstPerson || devForceDelay()) ? lead.current.lag : 0
+    // The rigid desktop shift keeps the true attitude and moves at render time: no delayed sample.
+    const delay = active && !an.rigid && (xr || !firstPerson || devForceDelay()) ? lead.current.lag : 0
     const vis = mod._FsVrPlayerVisualDataPointer() >> 2
     if (delay > 0.0005 && history.current.sample(now - delay, g.matrix)) {
       mod.HEAPF32[vis] = 1
@@ -368,7 +375,7 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
   useEffect(() => {
     if (!mod) return
     const t = { F: new Vector3(), p: new Vector3(), q: new Quaternion(), qv: new Quaternion(), s: new Vector3(), v: new Vector3(), w: new Vector3(), rig: new Matrix4(), inv: new Matrix4(), one: new Vector3(1, 1, 1) }
-    return onBeforeEngineDraw(() => {
+    return onBeforeEngineDraw((drawCamera) => {
       const g = group.current
       const a = anchor.current
       let F: Vector3 | null = null
@@ -394,7 +401,36 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
       t.w.copy(a.seat).add(a.cal) // the follower's place in the aircraft frame
       const trail = t.v.copy(t.w).applyMatrix4(a.trueM).distanceTo(F)
       const ok = a.mode && a.calN >= 10 && trail < Math.max(1, speed * 0.25)
-      if (ok) {
+      if (ok && a.rigid) {
+        // Desktop.  The host places the camera from the seat, on time, and the
+        // body -- the avatar -- a frame late: at speed the avatar slides fore
+        // and aft against the camera by speed x the frame-time jitter.  In
+        // first person that is the headless avatar shaking behind the pilot;
+        // in third person (mouse wheel) the avatar, and with it the aircraft
+        // and HUD that v48 anchored to the body, shaking in front of the
+        // camera (toming, 2026-11-12).  One displacement cures both: move the
+        // own aircraft, the HUD and the camera together by how far the body
+        // is from where the true pose would have it.  Camera against cockpit
+        // is then exactly what the host set up (the first-person view that
+        // was already steady), and the avatar sits still in its seat.  What
+        // takes the jitter instead is the world outside, by centimetres.
+        // (matrixWorld only: the host's camera.position is its own, and it
+        // rebuilds the matrix next frame.)
+        t.p.subVectors(F, t.v) // t.v: where the body would be on the true pose
+        g.matrix.copy(a.trueM)
+        const ge = g.matrix.elements
+        ge[12] += t.p.x; ge[13] += t.p.y; ge[14] += t.p.z
+        g.updateMatrixWorld(true)
+        const vis = mod._FsVrPlayerVisualDataPointer() >> 2
+        mod.HEAPF32[vis] = 1
+        for (let i = 0; i < 16; i++) mod.HEAPF32[vis + 1 + i] = ge[i]
+        lead.current.reportVisual(true, g.matrix)
+        const me = drawCamera.matrixWorld.elements
+        me[12] += t.p.x; me[13] += t.p.y; me[14] += t.p.z
+        drawCamera.matrixWorldInverse.copy(drawCamera.matrixWorld).invert()
+        camShift.current.cam = drawCamera
+        camShift.current.d.copy(t.p)
+      } else if (ok) {
         g.matrix.decompose(t.p, t.qv, t.s) // the attitude the visuals already have
         t.p.copy(F).sub(t.w.applyQuaternion(t.qv))
         g.matrix.compose(t.p, t.qv, t.one)
@@ -413,6 +449,18 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
       lead.current.reportAnchor(ok, trail)
     })
   }, [mod, gl, users])
+
+  // The camera shift is for the render only.  Take it back before anything in the next frame reads the camera:
+  // the dev environment's player takes its place from the camera's world matrix, and a shift left in would
+  // come back as a body one more frame behind (seen in the local suite: 2 frames of trail became 3).
+  useFrame(() => {
+    const c = camShift.current
+    if (!c.cam) return
+    const me = c.cam.matrixWorld.elements
+    me[12] -= c.d.x; me[13] -= c.d.y; me[14] -= c.d.z
+    c.cam.matrixWorldInverse.copy(c.cam.matrixWorld).invert()
+    c.cam = null
+  }, -1000)
 
   useEffect(() => () => endLocalFlight(), [endLocalFlight])
   useEffect(() => () => { if (padOwner.current) { padOwner.current = false; releaseGamepad(mod) } }, [mod])
