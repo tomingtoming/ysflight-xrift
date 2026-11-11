@@ -147,7 +147,7 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
       <LobbyKiosk position={[sx + KIOSK_AHEAD_M * dx, e + 1.6, sz + KIOSK_AHEAD_M * dz]} yaw={yaw} role={role} room={room} field={field} onField={setField} defaultStp={apron.stp} previewSide={[-rx, -rz]} previewAhead={[dx, dz]} />
       <SessionPanel position={[sx + KIOSK_AHEAD_M * dx + 1.55 * rx, e + 1.6, sz + KIOSK_AHEAD_M * dz + 1.55 * rz]} yaw={yaw} role={role} />
       {/* How to fly: left of the kiosk (the session panel is on its right), turned a little toward the spawn. */}
-      <ControlsSign position={[sx + KIOSK_AHEAD_M * dx - 2.2 * rx, e + 1.6, sz + KIOSK_AHEAD_M * dz - 2.2 * rz]} yaw={yaw + 0.5} />
+      <ControlsSign position={[sx + KIOSK_AHEAD_M * dx - 2.45 * rx, e + 1.6, sz + KIOSK_AHEAD_M * dz - 2.45 * rz]} yaw={yaw + 0.55} />
       <LoadingPanel position={[sx + LOADING_AHEAD_M * dx, e + 1.6, sz + LOADING_AHEAD_M * dz]} yaw={yaw} field={field} />
       <CockpitSeat home={[sx + 6 * rx - 2 * dx, e + 0.5, sz + 6 * rz - 2 * dz]} homeYaw={yaw} respawn={{ position: [sx, e + 0.5, sz], yaw: spawnYawDeg }} />
       <RemoteAircraftSeats />
