@@ -141,7 +141,7 @@ export async function createEngine(
 }
 
 /** fsvr.h FSVR_ABI_VERSION this world is written against. */
-export const ENGINE_ABI = 4
+export const ENGINE_ABI = 5
 let engineBuild: string | null = null
 /** The fork commit the running engine binary was built from (engine/build.sh), once known. */
 export function engineBuildId(): string | null { return engineBuild }

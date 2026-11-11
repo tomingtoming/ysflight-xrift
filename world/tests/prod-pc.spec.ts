@@ -479,3 +479,56 @@ test('trace: aircraft, camera and body frame by frame at speed', async ({ page }
   console.log(`[trace] attitude, first frames (aircraft deg / camera-in-aircraft deg): ${air.slice(0, 16).map((x, i) => `${x.toFixed(2)}/${rel[i].toFixed(2)}`).join('  ')}`)
   console.log(`[trace] first frames (dt ms | travel cm aircraft/camera/body): ${dts.slice(0, 16).map((t, i) => `${t.toFixed(1)}|${(sa[i] * 100).toFixed(0)}/${(sc[i] * 100).toFixed(0)}/${(sf[i] * 100).toFixed(0)}`).join('  ')}`)
 })
+
+test('desktop: the loading column by crosshair -- one AIM-9 off, less fuel -- and the aircraft flies with it; the apron floor is the heightfield', async ({ page }) => {
+  await watchBeacon(page)
+  await enterWorld(page, WORLD_URL)
+  await waitForBeacon(page, (x) => x.role !== null && !!x.net && x.net.ready, 150_000, 'session ready')
+  // The ground under the visitor is the engine's terrain as a heightfield (net/GroundPatch.tsx), and they stand on it.
+  const g = await waitForBeacon(page, (x) => !!x.apron && !!x.ground.patch && x.ground.field != null && !!x.ground.feet && Math.abs(x.ground.feet[1] - x.ground.field) < 0.1, 40_000, 'standing on the heightfield, level with the engine ground')
+  console.log(`[loadout:prod] ground ${JSON.stringify(g.ground)}`)
+  const b0 = await waitForBeacon(page, (x) => !!x.loadout?.editor.valid && x.kioskItems.some((i) => i.name === 'lo-:1') && x.kioskItems.some((i) => i.name === 'fuel-') && !!x.kioskBtn && !!x.cam, 30_000, 'loading column shown')
+  const AIM9 = 1
+  const before = b0.loadout!.editor
+  const n0 = before.slots.find((s) => s.type === AIM9)!.num
+  console.log(`[loadout:prod] default ${JSON.stringify(before.slots.filter((s) => s.max > 0))} fuel ${before.fuel}`)
+  expect(n0).toBeGreaterThan(0)
+
+  await page.mouse.click(640, 360)
+  await page.waitForTimeout(800)
+  expect(await page.evaluate(() => !!document.pointerLockElement)).toBe(true)
+  const cur = { mx: 640, my: 360 }
+  const look = async (dyaw: number, dpitch: number) => {
+    const dx = -dyaw / DEG_PER_PX, dy = -dpitch / DEG_PER_PX
+    cur.mx += dx; cur.my += dy
+    await page.mouse.move(cur.mx, cur.my, { steps: Math.max(2, Math.ceil(Math.hypot(dx, dy) / 20)) })
+    await page.waitForTimeout(350)
+  }
+  const walk = async (ms: number) => { await page.keyboard.down('w'); await page.waitForTimeout(ms); await page.keyboard.up('w') }
+  const press = async (name: string) => {
+    const item = (await lastBeacon(page))!.kioskItems.find((i) => i.name === name)
+    if (!item) throw new Error(`${name} is not in the loading column`)
+    const aim = await walkAndAim(page, look, walk, 3.0, { id: name, p: item.pos })
+    console.log(`[loadout:prod aim] ${name} dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
+    await page.mouse.click(cur.mx, cur.my)
+    await page.waitForTimeout(700)
+  }
+  await press('lo-:1')
+  const one = await waitForBeacon(page, (x) => x.loadout!.editor.slots.find((s) => s.type === AIM9)!.num === n0 - 1, 8_000, 'one AIM-9 off')
+  await press('fuel-')
+  await press('fuel-')
+  const fueled = await waitForBeacon(page, (x) => x.loadout!.editor.fuel === before.fuel - 20, 8_000, 'fuel down 20 %')
+  await page.screenshot({ path: test.info().outputPath('pc-loadout.png') })
+  const want = fueled.loadout!.editor
+  expect(one.loadout!.editor.rev).toBeGreaterThan(before.rev)
+
+  const aim = await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: (await lastBeacon(page))!.kioskBtn! })
+  console.log(`[loadout:prod kiosk aim] dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
+  await page.mouse.click(cur.mx, cur.my)
+  const fly = await waitForBeacon(page, (x) => x.seat === 'ysfx-cockpit' && !!x.net && x.net.state === NET_FLYING && !!x.loadout?.carried.valid, 40_000, 'flying, carried loading published')
+  const c = fly.loadout!.carried
+  console.log(`[loadout:prod] carried ${JSON.stringify(want.slots.map((s, k) => [s.type, c.counts[k]]).filter(([, n]) => n > 0))} fuel ${(c.fuelFraction * 100).toFixed(1)} %`)
+  want.slots.forEach((s, k) => expect(c.counts[k], `weapon type ${s.type}`).toBe(s.num))
+  expect(Math.abs(c.fuelFraction * 100 - want.fuel)).toBeLessThan(3)
+  await keepAuth(page.context(), resolve(import.meta.dirname, '.auth/xrift.json'))
+})

@@ -31,6 +31,11 @@ export interface YsflightModule {
   _FsVrFlightDataPointer: () => number
   _FsVrHudDataPointer: () => number
   _FsVrGroundProbeDataPointer: () => number
+  /** Ground grid block (fsvr.h): request [0..4], answer [5..7], n*n heights from [8]. */
+  _FsVrGroundGridDataPointer: () => number
+  /** Loadout editor block and its two calls (fsvr.h). */
+  _FsVrLoadoutDataPointer: () => number
+  _FsVrLoadoutChange: (wpnType: number, n: number) => void
   /** Showroom preview block (fsvr.h): enable, position xyz (world), heading, [5] template radius (engine). */
   _FsVrPreviewDataPointer: () => number
   /** Lobby commands beyond join/leave (fsvr.h): reports, missions, revive ground. */

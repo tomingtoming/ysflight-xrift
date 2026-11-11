@@ -5,20 +5,28 @@
  *   window.__ysfxStand()       stand up (if the host exposes it)
  *   window.__ysfxLobbyStart(air, stp)  what the kiosk's 飛行開始 does
  *   window.__ysfxSetField(field)  what the host's field pick does
+ *   window.__ysfxPatchFocus(x, z)  lay the ground patch around a point instead of the player (null args: back to the player)
+ *   window.__ysfxGroundRay(x, z)   height of the highest collider under a point (a physics ray straight down)
+ *   window.__ysfxLoadout(air, changes, fuel, smoke)  what the kiosk's loading column does: start from
+ *                              the template's default, apply [FSWEAPONTYPE, n] pairs, set fuel % / smoke
  *   window.__ysfxBodyLag(frames, forceDelay)  the production host's late body (seatLead.ts)
  *   window.__ysfxHud           last HUD lines (set by FlightHud)
  * Compiled out of production bundles (import.meta.env.DEV gate at the call site).
  */
 import { useSeatContext } from '@xrift/world-components'
+import { useRapier } from '@react-three/rapier'
 import { useEffect } from 'react'
 import { useEngine } from '../engine/engineStore'
 import { setKioskJoin, setPendingJoin } from './lobbyStore'
 import { NET_FLYING, readNetState, requestCommand, requestJoin, requestLeave, type NetState } from './netState'
 import { setDevBodyLag } from './seatLead'
+import { setDevPatchFocus } from './GroundPatch'
+import { loadoutChange, loadoutSetAircraft, loadoutSetFuel, loadoutSetSmoke, readLoadout } from './loadout'
 
 export function DevHooks({ onField }: { onField?: (field: string) => void }) {
   const seat = useSeatContext() as unknown as Record<string, unknown>
   const mod = useEngine()
+  const { world, rapier } = useRapier()
   useEffect(() => {
     const w = window as unknown as Record<string, unknown>
     // The production desktop host lands the body one frame late; the dev
@@ -46,15 +54,32 @@ export function DevHooks({ onField }: { onField?: (field: string) => void }) {
       requestJoin(mod, air, stp)
       return 'requested'
     }
+    w.__ysfxPatchFocus = (x?: number | null, z?: number | null) => { setDevPatchFocus(x == null || z == null ? null : { x, z }); return 'set' }
+    w.__ysfxGroundRay = (x: number, z: number) => {
+      const top = 20000
+      const hit = world.castRay(new rapier.Ray({ x, y: top, z }, { x: 0, y: -1, z: 0 }), 2 * top, true)
+      return hit ? top - hit.timeOfImpact : null
+    }
+    w.__ysfxLoadout = (air: string, changes: Array<[number, number]> = [], fuel?: number, smoke?: boolean) => {
+      if (!mod) return 'engine not ready'
+      loadoutSetAircraft(mod, air)
+      for (const [type, n] of changes) loadoutChange(mod, type, n)
+      if (fuel !== undefined) loadoutSetFuel(mod, fuel)
+      if (smoke !== undefined) loadoutSetSmoke(mod, smoke)
+      return readLoadout(mod)
+    }
     w.__ysfxNetCommand = (cmd: number) => { if (!mod) return 'engine not ready'; requestCommand(mod, cmd); return 'queued' }
     return () => {
       delete w.__ysfxLobbyStart
       delete w.__ysfxNetCommand
+      delete w.__ysfxLoadout
+      delete w.__ysfxPatchFocus
+      delete w.__ysfxGroundRay
       delete w.__ysfxSit
       delete w.__ysfxStand
       delete w.__ysfxSetField
       delete w.__ysfxBodyLag
     }
-  }, [seat, mod, onField])
+  }, [seat, mod, onField, world, rapier])
   return null
 }

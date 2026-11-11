@@ -53,9 +53,12 @@ const ATSUGI_DIR: [number, number] = [0.17365, -0.98481]
 const ATSUGI: Apron = { spawn: apronSpot([-116.99994, 0, 663.19962], ATSUGI_DIR), dir: ATSUGI_DIR, elev: 0, stp: 'RW01_01' }
 
 const GROUND_TILE = 400 // m; small enough that the host's character controller stands on top (see below)
-const GROUND_TILES_PER_SIDE = 5 // 2 km around the apron: flat airfields only (hilly fields want a heightfield)
+const GROUND_TILES_PER_SIDE = 5 // 2 km around the apron, until the heightfield takes over (net/GroundPatch.tsx)
 const LOADING_AHEAD_M = 2.0 // the loading panel stands in front of the kiosk and hides it until the field is ready
 const KIOSK_AHEAD_M = 2.6 // the kiosk faces the visitor from inside interact range (3.5 m): no walking (toming, 2026-11-09)
+// The kiosk grew a fourth column (loading) and is 2.15 m wide: its neighbours moved out by half the growth.
+const SESSION_PANEL_RIGHT_M = 1.775
+const CONTROLS_SIGN_LEFT_M = 2.675
 const ELEV_SAMPLES = 20
 
 function Airfield({ role, room, field, setField }: { role: NetRole; room: string | null; field: string; setField?: (f: string) => void }) {
@@ -65,6 +68,8 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
   const camera = useThree((st) => st.camera)
   const feetTmp = useRef(new Vector3())
   const [apron, setApron] = useState<Apron>(ATSUGI)
+  /** The heightfield under the local player has its first answer: the flat stand-in floor can go. */
+  const [terrain, setTerrain] = useState(false)
   const done = useRef(false)
   const samples = useRef<number[]>([])
   const pending = useRef<Omit<Apron, 'elev'> | null>(null)
@@ -146,27 +151,32 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
       {/* The standby screen in the world: pick an aircraft, a start position and
           (host only) the field, press 飛行開始, and the cockpit seat boards you. */}
       <LobbyKiosk position={[sx + KIOSK_AHEAD_M * dx, e + 1.6, sz + KIOSK_AHEAD_M * dz]} yaw={yaw} role={role} room={room} field={field} onField={setField} defaultStp={apron.stp} previewSide={[-rx, -rz]} previewAhead={[dx, dz]} />
-      <SessionPanel position={[sx + KIOSK_AHEAD_M * dx + 1.55 * rx, e + 1.6, sz + KIOSK_AHEAD_M * dz + 1.55 * rz]} yaw={yaw} role={role} />
+      <SessionPanel position={[sx + KIOSK_AHEAD_M * dx + SESSION_PANEL_RIGHT_M * rx, e + 1.6, sz + KIOSK_AHEAD_M * dz + SESSION_PANEL_RIGHT_M * rz]} yaw={yaw} role={role} />
       <VoiceForAll />
       {/* How to fly: left of the kiosk (the session panel is on its right), turned a little toward the spawn. */}
-      <ControlsSign position={[sx + KIOSK_AHEAD_M * dx - 2.45 * rx, e + 1.6, sz + KIOSK_AHEAD_M * dz - 2.45 * rz]} yaw={yaw + 0.55} />
+      <ControlsSign position={[sx + KIOSK_AHEAD_M * dx - CONTROLS_SIGN_LEFT_M * rx, e + 1.6, sz + KIOSK_AHEAD_M * dz - CONTROLS_SIGN_LEFT_M * rz]} yaw={yaw + 0.55} />
       <LoadingPanel position={[sx + LOADING_AHEAD_M * dx, e + 1.6, sz + LOADING_AHEAD_M * dz]} yaw={yaw} field={field} />
       <CockpitSeat home={[sx + 6 * rx - 2 * dx, e + 0.5, sz + 6 * rz - 2 * dz]} homeYaw={yaw} respawn={{ position: [sx, e + 0.5, sz], yaw: spawnYawDeg }} />
       <RemoteAircraftSeats />
-      <GroundPatch />
+      <GroundPatch onReady={setTerrain} />
       <FrameTrace />
       {import.meta.env.DEV ? <DevHooks onField={setField} /> : null}
 
-      {/* Walkable ground: flat tiles at the field's apron elevation (the
-          engine draws the terrain; this only carries the avatar).  Tiled
-          because the host's character controller sinks into a huge cuboid in
+      {/* Walkable ground.  Once the engine has loaded the field, GroundPatch
+          lays a heightfield of the real terrain under the local player
+          (hills, carrier decks) and this floor goes away.  Until then -- the
+          engine downloads for a while, and restarts for another field --
+          flat tiles at the apron elevation carry the visitor.  Tiled because
+          the host's character controller sinks into a huge cuboid in
           proportion to its size -- measured 2026-11-09: half-extent 3000 m
           -> feet 0.91 m below the top, 1500 m -> 0.26 m, 200 m -> 0.01 m. */}
-      <RigidBody key={`${sx},${sz},${e}`} type="fixed" restitution={0} friction={0}>
-        {tiles.map(([x, z]) => (
-          <CuboidCollider key={`${x},${z}`} args={[GROUND_TILE / 2, 0.5, GROUND_TILE / 2]} position={[x, e - 0.5, z]} />
-        ))}
-      </RigidBody>
+      {terrain ? null : (
+        <RigidBody key={`${sx},${sz},${e}`} type="fixed" restitution={0} friction={0}>
+          {tiles.map(([x, z]) => (
+            <CuboidCollider key={`${x},${z}`} args={[GROUND_TILE / 2, 0.5, GROUND_TILE / 2]} position={[x, e - 0.5, z]} />
+          ))}
+        </RigidBody>
+      )}
 
       {/* Keyed by the place: the platform's SpawnPoint reports its position
           once, when mounted, so a new field needs a new one -- otherwise a

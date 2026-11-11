@@ -27,6 +27,7 @@ import { padStatus } from '../engine/gamepadStick'
 import { fireStatus } from '../engine/fireKey'
 import { voiceStatus } from './VoiceForAll'
 import { isCoarsePointer } from './TouchConsole'
+import { readCarried, readLoadout, type Carried, type Loadout } from './loadout'
 
 export interface YsfxBeacon {
   t: number
@@ -77,7 +78,9 @@ export interface YsfxBeacon {
   lobby: number[] | null
   kiosk: { hovers: number; lastPointer: string; ev: Record<string, number> }
   /** Ground check: camera height, the avatar's feet (host movement), and the engine's terrain under the feet. */
-  ground: { cam: number; feet: number[] | null; field: number | null; deck?: boolean }
+  ground: { cam: number; feet: number[] | null; field: number | null; deck?: boolean; patch?: PatchInfo | null }
+  /** The kiosk's loadout editor (engine side) and what the player's aircraft really carries. */
+  loadout?: { editor: Loadout; carried: Carried } | null
   /** Seated camera lag along the velocity and the lead applied (seatLead.ts). */
   lag: LagReport | null
   /** Phone switch panel button centres (TouchConsole), null when not shown. */
@@ -134,6 +137,11 @@ export function isProbeBusy(): boolean { return probeBusy }
 let groundUnder: { height: number; deck: boolean } | null = null
 export function publishGround(g: { height: number; deck: boolean } | null): void { groundUnder = g }
 
+/** The heightfield GroundPatch laid under the local player: centre, size, relief, and the floor it was replaced for. */
+export interface PatchInfo { cx: number; cz: number; n: number; spacing: number; min: number; max: number; deckSamples: number; builds: number }
+let patchInfo: PatchInfo | null = null
+export function publishPatch(p: PatchInfo | null): void { patchInfo = p }
+
 let kioskBtn: number[] | null = null
 /** LobbyKiosk publishes the 飛行開始 button centre (world). */
 export function publishKioskButton(pos: number[] | null): void { kioskBtn = pos }
@@ -183,7 +191,7 @@ export function StateBeacon({ role, room, field }: { role: NetRole | null; room:
     const detail: YsfxBeacon = {
       others,
       t: Date.now(), role, room, net: null, flight: null, aircraft: [], hud: hudLines, seat: localSeat, draws: ysfxStats.draws, bg: ysfxStats.bgTicks, ctl: null, lobby: lobbyCounts ? [...lobbyCounts, kioskClicks(), kioskJoinPending() ? 1 : 0] : null, kiosk: kioskHovers(),
-      ground: { cam: v.current.y, feet, field: fieldElev, deck: !!groundUnder?.deck },
+      ground: { cam: v.current.y, feet, field: fieldElev, deck: !!groundUnder?.deck, patch: patchInfo },
       vr: { ...saccStatus, right: { ...saccStatus.right }, left: { ...saccStatus.left } },
       eye: eyeCalibration(),
       lag: seatLag(),
@@ -214,6 +222,7 @@ export function StateBeacon({ role, room, field }: { role: NetRole | null; room:
       detail.ctl = Array.from(f.subarray(c, c + 12))
       detail.ctlOwner = controlBus.owner()
       detail.engine = engineBuildId()
+      detail.loadout = { editor: readLoadout(mod), carried: readCarried(mod) }
       detail.view = f[(mod._FsVrExternalViewDataPointer() >> 2) + 3]
       const n = airCount(mod)
       for (let i = 0; i < n; i++) {

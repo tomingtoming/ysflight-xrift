@@ -3,7 +3,9 @@
  *
  * A panel on the apron listing every aircraft the engine knows and the
  * field's start positions (both read from the engine once the lobby is
- * ready).  Pick one of each (and the IFF, the team) and press 飛行開始: the world asks the engine to
+ * ready).  Pick one of each (and the IFF, the team), load the aircraft in the
+ * fourth column (weapons, fuel, smoke: the loading tab of the original
+ * chooser, whose rules stay in the engine -- loadout.ts) and press 飛行開始: the world asks the engine to
  * join the session; when the aircraft appears the CockpitSeat boards the
  * player automatically.  Interaction goes through uikit's onClick, which the
  * host drives from the crosshair (PC), touch (phone) and the controller ray
@@ -20,10 +22,13 @@ import { countKioskClick, noteKioskPointer, pendingJoin, setKioskJoin, setPendin
 import { NET_FLYING, airBase, airCount, lobbyAirNames, lobbyFieldNames, lobbyStpNames, lobbyStpPositions, readNetState, requestJoin, requestLeave, type NetState } from './netState'
 import type { NetRole } from './NetSession'
 import { deliberate } from './clickGuard'
+import { WEAPON_LABEL, loadoutChange, loadoutRevision, loadoutSetAircraft, loadoutSetFuel, loadoutSetSmoke, readLoadout, type Loadout } from './loadout'
 
 const PAGE = 10
 const PX = 0.001 // metres per pixel
-const W = 1700
+const W = 2150 // four columns: aircraft, start position, field, loading
+const FUEL_STEP = 10
+const FUEL_MIN = 10
 const H = 1000
 /** The panel's centre above the ground (World places it there). */
 const KIOSK_CENTRE_M = 1.6
@@ -58,6 +63,10 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
   /** uikit items of the field column (uikit components are Object3Ds): their world centres go to the beacon so a harness can click one. */
   const fieldItemRefs = useRef(new Map<string, unknown>())
   const stpItemRefs = useRef(new Map<string, unknown>())
+  /** The loading column's buttons, by name (lo+:<FSWEAPONTYPE>, lo-:<type>, fuel+, fuel-, smoke). */
+  const loItemRefs = useRef(new Map<string, unknown>())
+  const [loadout, setLoadout] = useState<Loadout | null>(null)
+  const loRev = useRef(-1)
   const itemWorld = useRef(new Vector3())
   const [airs, setAirs] = useState<string[]>([])
   const [stps, setStps] = useState<string[]>([])
@@ -82,6 +91,19 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
   const [rejectNote, setRejectNote] = useState('')
   const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   const acc = useRef(0)
+
+  const refreshLoadout = useCallback(() => {
+    if (!mod) return
+    const lo = readLoadout(mod)
+    loRev.current = lo.rev
+    setLoadout(lo.valid ? lo : null)
+  }, [mod])
+  // The loading starts over from the template's default whenever another aircraft is picked.
+  useEffect(() => {
+    if (!mod || airs.length === 0) return
+    loadoutSetAircraft(mod, selAir)
+    refreshLoadout()
+  }, [mod, selAir, airs.length, refreshLoadout])
 
   useFrame((_s, dt) => {
     acc.current += dt
@@ -123,8 +145,14 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
         const o = r as { getWorldPosition?: (v: Vector3) => Vector3 } | null
         if (o && typeof o.getWorldPosition === 'function') items.push({ name, pos: o.getWorldPosition(itemWorld.current).toArray() })
       })
+      loItemRefs.current.forEach((r, name) => {
+        const o = r as { getWorldPosition?: (v: Vector3) => Vector3 } | null
+        if (o && typeof o.getWorldPosition === 'function') items.push({ name, pos: o.getWorldPosition(itemWorld.current).toArray() })
+      })
       publishKioskItems(items)
     }
+    // The engine changes the loading by itself too (the session's weapon permissions arrive after the lists).
+    if (loadoutRevision(mod) !== loRev.current) refreshLoadout()
     const ns = readNetState(mod, netRef.current)
     const seated = localSeatId() !== null
     const who = role === 'host' ? 'サーバ' : role === 'client' ? 'クライアント' : '接続中'
@@ -223,6 +251,46 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
     onField(f) // the host alone: every engine in the session restarts on the new field
   }, [onField, field])
 
+  const loButton = (name: string, label: string, enabled: boolean, press: () => void) => (
+    <Container width={56} height={46} borderRadius={8} justifyContent="center" alignItems="center"
+      backgroundColor={enabled ? 0x444444 : 0x2a2a2a} hover={{ backgroundColor: enabled ? 0x666666 : 0x2a2a2a }} cursor="pointer"
+      onClick={(e) => { if (deliberate(e) && enabled && mod) { press(); refreshLoadout() } }}
+      ref={(r: unknown) => { if (r) loItemRefs.current.set(name, r); else loItemRefs.current.delete(name) }}>
+      <Text fontSize={30} color={enabled ? 0xffffff : 0x777777}>{label}</Text>
+    </Container>
+  )
+  const loRow = (key: string, label: string, value: string, minus: React.ReactNode, plus: React.ReactNode) => (
+    <Container key={key} height={50} paddingX={12} borderRadius={8} backgroundColor={0x222222} flexDirection="row" alignItems="center" justifyContent="space-between">
+      <Text fontSize={26} color={0xffffff}>{label}</Text>
+      <Container flexDirection="row" alignItems="center" gap={8}>
+        {minus}
+        <Container width={120} justifyContent="center" alignItems="center"><Text fontSize={26} color={0xffffff}>{value}</Text></Container>
+        {plus}
+      </Container>
+    </Container>
+  )
+  const loading = (
+    <Container flexDirection="column" flexGrow={1} flexBasis={0} gap={6}>
+      <Container flexDirection="row" alignItems="center" height={48}>
+        <Text fontSize={34} color={0xffffff} fontFamily="ja">兵装 / 燃料</Text>
+      </Container>
+      {loadout ? (
+        <>
+          {loadout.slots.filter((sl) => sl.max > 0).map((sl) => loRow(
+            `w${sl.type}`, WEAPON_LABEL[sl.type] ?? `#${sl.type}`, `${sl.num}/${sl.max}`,
+            loButton(`lo-:${sl.type}`, '-', sl.num > 0, () => loadoutChange(mod!, sl.type, Math.max(0, sl.num - sl.step))),
+            loButton(`lo+:${sl.type}`, '+', sl.num < sl.max, () => loadoutChange(mod!, sl.type, Math.min(sl.max, sl.num + sl.step))),
+          ))}
+          {loRow('fuel', 'FUEL', `${loadout.fuel}%`,
+            loButton('fuel-', '-', loadout.fuel > FUEL_MIN, () => loadoutSetFuel(mod!, Math.max(FUEL_MIN, loadout.fuel - FUEL_STEP))),
+            loButton('fuel+', '+', loadout.fuel < 100, () => loadoutSetFuel(mod!, Math.min(100, loadout.fuel + FUEL_STEP))))}
+          {loadout.smokeGenerators > 0 ? loRow('smoke', 'SMOKE', loadout.smoke ? 'ON' : 'OFF',
+            loButton('smoke', loadout.smoke ? 'x' : 'o', true, () => loadoutSetSmoke(mod!, !loadout.smoke)), null) : null}
+        </>
+      ) : <Text fontSize={26} color={0x888888}>-</Text>}
+    </Container>
+  )
+
   const list = (
     title: string, items: string[], page: number, pages: number, sel: string,
     onSel: (v: string) => void, onPage: (p: number) => void, refs?: Map<string, unknown>,
@@ -263,6 +331,7 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
           {list('機体', airs, pageAir, airPages, selAir, setSelAir, setPageAir)}
           {list('スタート地点', stps, pageStp, stpPages, selStp, setSelStp, setPageStp, stpItemRefs.current)}
           {list(onField ? 'フィールド（ホスト）' : 'フィールド', fields, pageFld, fldPages, field, chooseField, setPageFld, fieldItemRefs.current)}
+          {loading}
         </Container>
         <Container flexDirection="row" alignItems="center" justifyContent="space-between">
           <Text fontSize={30} color={0xffffff} fontFamily="ja">{`選択: ${selAir} / ${selStp}`}</Text>

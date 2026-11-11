@@ -27,3 +27,14 @@ skips the lobby. Entering takes ~10 s on a desktop profile.
 local WebRTC P2P, which Cloudflare WARP on this Mac breaks: run it with WARP off. The second
 pilot must be a guest (the host drops an earlier connection of the same account), and
 `browser.newContext()` inherits the project's `storageState` unless overridden with `undefined`.
+
+## Linux hosts: headless Chrome needs the real GPU
+
+Headless Chrome falls back to SwiftShader (software WebGL) by default; the
+engine does not boot on it (`boot failed ... setting 'enabled'`, every test
+times out at "server ready").  On toming-server (AMD 780M, RADV):
+
+    YSFX_ARGS="--enable-gpu --use-angle=vulkan --enable-features=Vulkan" npm run test:local
+
+Engine builds there: `source ~/emsdk/emsdk_env.sh` (Emscripten 7.0.0) and
+cmake from `~/.local/bin` before `engine/build.sh` (2026-11-12).
