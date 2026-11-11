@@ -193,7 +193,7 @@ test('host changes the field: every list reloads, the apron moves, a flight star
   console.log(`[field] kiosk button ${JSON.stringify(b0.kioskBtn?.map((n) => +n.toFixed(2)))}; field items ${JSON.stringify(b0.kioskItems.map((i) => [i.name, ...i.pos.map((n) => +n.toFixed(2))]))}`)
   expect(b0.field.current).toBe('ATSUGI_AIRBASE')
   // Atsugi's apron is where the first worlds put it by hand (spawn ahead of RW01_01, runway toward -z).
-  expect(Math.hypot(b0.apron!.spawn[0] + 117, b0.apron!.spawn[2] - 640)).toBeLessThan(6)
+  expect(Math.hypot(b0.apron!.spawn[0] + 73.6, b0.apron!.spawn[2] - 647.5)).toBeLessThan(6) // beside the runway: 40 m right of the point 23 m ahead of RW01_01
   expect(Math.abs(b0.apron!.elev)).toBeLessThan(0.5)
   const kiosk0 = b0.kioskBtn!
 

@@ -199,7 +199,7 @@ test('desktop: the host picks another field at the kiosk; everyone restarts ther
   test.skip(b.role !== 'host', 'another browser holds the host seat in this instance')
   const b0 = await waitForBeacon(page, (x) => !!x.lobby && x.lobby[0] > 10 && x.field.names.length > 1 && !!x.apron && x.kioskItems.length > 0 && !!x.cam, 30_000, 'lists, fields, apron, kiosk items')
   console.log(`[field:prod] current ${b0.field.current}, apron ${JSON.stringify(b0.apron)}`)
-  const pick = b0.field.names.find((n) => /NAHA/.test(n)) ?? b0.field.names.find((n) => n !== b0.field.current)!
+  const pick = b0.field.names.find((n) => /MATSUSHIMA/.test(n)) ?? b0.field.names.find((n) => n !== b0.field.current)!
   const item = b0.kioskItems.find((i) => i.name === pick)
   if (!item) throw new Error(`${pick} is not on the kiosk's first field page: ${b0.kioskItems.map((i) => i.name).join(' ')}`)
 
@@ -224,6 +224,9 @@ test('desktop: the host picks another field at the kiosk; everyone restarts ther
   console.log(`[field:prod] feet ${JSON.stringify(here.ground.feet?.map((n) => +n.toFixed(2)))} engine ground ${here.ground.field}`)
   await page.screenshot({ path: test.info().outputPath('pc-field-apron.png') })
   // And the kiosk works there: 飛行開始 at the new field's first start position.
+  await page.waitForTimeout(1200)
+  const facing = await aimError(page, { id: 'kiosk-start', p: (await lastBeacon(page))!.kioskBtn! })
+  console.log(`[field:prod] facing after the teleport: kiosk button ${facing.dist.toFixed(2)} m away, ${facing.dyaw.toFixed(1)} deg off`)
   const btn = (await waitForBeacon(page, (x) => !!x.kioskBtn && Math.hypot(x.kioskBtn[0] - b1.apron!.spawn[0], x.kioskBtn[2] - b1.apron!.spawn[2]) < 30, 10_000, 'kiosk at the new apron')).kioskBtn!
   const aim2 = await walkAndAim(page, look, walk, 2.4, { id: 'kiosk-start', p: btn })
   console.log(`[field:prod kiosk aim] dist ${aim2.dist.toFixed(2)} dyaw ${aim2.dyaw.toFixed(1)} dpitch ${aim2.dpitch.toFixed(1)}`)

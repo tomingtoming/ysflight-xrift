@@ -25,7 +25,7 @@ const worldConfig = xriftConfig.world as {
 createRoot(rootElement).render(
   <XRiftProvider baseUrl="/">
     <DevEnvironment
-      spawnPosition={[-117, 1, 640]}
+      spawnPosition={[-73.6, 1, 647.5]}
       physicsConfig={worldConfig.physics}
       camera={worldConfig.camera}
       outputBufferType={worldConfig.outputBufferType}

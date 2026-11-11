@@ -16,6 +16,7 @@ import { useDefaultFont } from '@xrift/world-components'
 import { useMemo, useRef, useState } from 'react'
 import { Group, Vector3 } from 'three'
 import { useEngine } from '../engine/engineStore'
+import { deliberate } from './clickGuard'
 import { publishPanel } from './StateBeacon'
 import { NET_CMD, airBase, airCount, airIdentifier, airName, consoleTail, readNetState, requestCommand, type NetState } from './netState'
 import type { NetRole } from './NetSession'
@@ -104,7 +105,7 @@ export function SessionPanel({ position, yaw = 0, role }: { position: [number, n
     return (
       <Container key={b.id} flexGrow={1} flexBasis={0} height={92} flexShrink={0} borderRadius={10} justifyContent="center" alignItems="center"
         backgroundColor={hot ? 0xb5651d : 0x2a3a4a} hover={{ backgroundColor: hot ? 0xd17a26 : 0x3a5068 }}
-        cursor="pointer" onClick={() => press(b)}
+        cursor="pointer" onClick={(e) => { if (deliberate(e)) press(b) }}
         ref={(r: unknown) => { if (r) btnRefs.current.set(b.id, r); else btnRefs.current.delete(b.id) }}>
         <Text fontSize={34} color={0xffffff} fontFamily="ja">{hot ? 'もう一度押して確定' : b.label}</Text>
       </Container>

@@ -19,6 +19,7 @@ import { localSeatId, publishFields, publishKioskButton, publishKioskItems, publ
 import { countKioskClick, noteKioskPointer, pendingJoin, setKioskJoin, setPendingJoin } from './lobbyStore'
 import { NET_FLYING, airBase, airCount, lobbyAirNames, lobbyFieldNames, lobbyStpNames, lobbyStpPositions, readNetState, requestJoin, requestLeave, type NetState } from './netState'
 import type { NetRole } from './NetSession'
+import { deliberate } from './clickGuard'
 
 const PAGE = 10
 const PX = 0.001 // metres per pixel
@@ -45,6 +46,7 @@ export interface LobbyKioskProps {
   previewSide?: [number, number]
   previewAhead?: [number, number]
 }
+
 
 const ptype = (e: unknown) => String((e as { pointerType?: string }).pointerType ?? (e as { nativeEvent?: { pointerType?: string } }).nativeEvent?.pointerType ?? '?')
 
@@ -230,12 +232,12 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
         <Text fontSize={34} color={0xffffff} fontFamily="ja">{title}</Text>
         <Container flexDirection="row" alignItems="center" gap={10}>
           <Container width={70} height={48} backgroundColor={0x444444} borderRadius={8} justifyContent="center" alignItems="center"
-            hover={{ backgroundColor: 0x666666 }} cursor="pointer" onClick={() => onPage((page + pages - 1) % pages)}>
+            hover={{ backgroundColor: 0x666666 }} cursor="pointer" onClick={(e) => { if (deliberate(e)) onPage((page + pages - 1) % pages) }}>
             <Text fontSize={30} color={0xffffff}>◀</Text>
           </Container>
           <Text fontSize={26} color={0xcccccc}>{`${page + 1}/${pages}`}</Text>
           <Container width={70} height={48} backgroundColor={0x444444} borderRadius={8} justifyContent="center" alignItems="center"
-            hover={{ backgroundColor: 0x666666 }} cursor="pointer" onClick={() => onPage((page + 1) % pages)}>
+            hover={{ backgroundColor: 0x666666 }} cursor="pointer" onClick={(e) => { if (deliberate(e)) onPage((page + 1) % pages) }}>
             <Text fontSize={30} color={0xffffff}>▶</Text>
           </Container>
         </Container>
@@ -243,7 +245,7 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
       {items.slice(page * PAGE, page * PAGE + PAGE).map((name) => (
         <Container key={name} height={56} paddingX={16} justifyContent="center" borderRadius={8}
           backgroundColor={name === sel ? 0x2f6fd0 : 0x222222} hover={{ backgroundColor: name === sel ? 0x3a80e8 : 0x383838 }}
-          cursor="pointer" onClick={() => onSel(name)}
+          cursor="pointer" onClick={(e) => { if (deliberate(e)) onSel(name) }}
           ref={refs ? (r: unknown) => { if (r) refs.set(name, r); else refs.delete(name) } : undefined}>
           <Text fontSize={28} color={occupied.has(name) ? 0xff9a7a : 0xffffff} fontFamily="ja">{occupied.has(name) ? `${name}（使用中）` : name}</Text>
         </Container>
@@ -269,14 +271,14 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
             {[0, 1, 2, 3].map((i) => (
               <Container key={i} width={64} height={64} borderRadius={10} justifyContent="center" alignItems="center"
                 backgroundColor={i === selIff ? 0x2f6fd0 : 0x222222} hover={{ backgroundColor: i === selIff ? 0x3a80e8 : 0x383838 }}
-                cursor="pointer" onClick={() => setSelIff(i)}>
+                cursor="pointer" onClick={(e) => { if (deliberate(e)) setSelIff(i) }}>
                 <Text fontSize={30} color={0xffffff}>{String(i + 1)}</Text>
               </Container>
             ))}
           </Container>
           <Container width={320} height={80} borderRadius={14} justifyContent="center" alignItems="center"
             backgroundColor={canStart ? 0x1f9d55 : 0x444444} hover={{ backgroundColor: canStart ? 0x27b863 : 0x444444 }}
-            cursor="pointer" onClick={(e) => { noteKioskPointer('click', ptype(e)); start() }}
+            cursor="pointer" onClick={(e) => { noteKioskPointer('click', ptype(e)); if (deliberate(e)) start() }}
             onPointerEnter={(e) => noteKioskPointer('enter', ptype(e))} onPointerLeave={(e) => noteKioskPointer('leave', ptype(e))}
             onPointerDown={(e) => noteKioskPointer('down', ptype(e))} onPointerUp={(e) => noteKioskPointer('up', ptype(e))}>
             <Text fontSize={36} color={0xffffff} fontFamily="ja">飛行開始</Text>

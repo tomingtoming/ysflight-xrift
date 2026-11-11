@@ -33,11 +33,24 @@ interface Apron { spawn: [number, number, number]; dir: [number, number]; elev: 
 // loads the default field a few seconds after the visitor arrived.  A phone
 // visitor had aimed at the kiosk's first spot and tapped into thin air once it
 // moved 4.9 m.  Other fields still move it, by hundreds of metres, with a teleport.
-const ATSUGI: Apron = { spawn: [-113.006, 0, 640.549], dir: [0.17365, -0.98481], elev: 0, stp: 'RW01_01' }
+const SPAWN_AHEAD_M = 23 // abeam a point ahead of the first start position's nose
+// Beside the runway, not on it (toming, 2026-11-11: standing on the runway is
+// uneasy).  To the right of the take-off direction, clear of the widest
+// runways' edge (half-width 30 m or so).
+const SPAWN_SIDE_M = 40
+function apronSpot(p: ArrayLike<number>, d: [number, number], side = SPAWN_SIDE_M): [number, number, number] {
+  return [p[0] + d[0] * SPAWN_AHEAD_M - d[1] * side, 0, p[2] + d[1] * SPAWN_AHEAD_M + d[0] * side]
+}
+// Tried in this order after the runway point itself (index 0, the reference
+// level): the first side whose ground is level with the runway wins; a field
+// with a slope or a cliff on both sides keeps the apron on the runway.
+const SIDE_CANDIDATES = [0, SPAWN_SIDE_M, -SPAWN_SIDE_M]
+const SIDE_LEVEL_M = 1.5
+const ATSUGI_DIR: [number, number] = [0.17365, -0.98481]
+const ATSUGI: Apron = { spawn: apronSpot([-116.99994, 0, 663.19962], ATSUGI_DIR), dir: ATSUGI_DIR, elev: 0, stp: 'RW01_01' }
 
 const GROUND_TILE = 400 // m; small enough that the host's character controller stands on top (see below)
 const GROUND_TILES_PER_SIDE = 5 // 2 km around the apron: flat airfields only (hilly fields want a heightfield)
-const SPAWN_AHEAD_M = 23 // the spawn stands on the runway ahead of the first start position's nose
 const LOADING_AHEAD_M = 2.0 // the loading panel stands in front of the kiosk and hides it until the field is ready
 const KIOSK_AHEAD_M = 2.6 // the kiosk faces the visitor from inside interact range (3.5 m): no walking (toming, 2026-11-09)
 const ELEV_SAMPLES = 20
@@ -52,9 +65,12 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
   const done = useRef(false)
   const samples = useRef<number[]>([])
   const pending = useRef<Omit<Apron, 'elev'> | null>(null)
+  const stp = useRef<{ p: [number, number, number]; d: [number, number] } | null>(null)
+  const cand = useRef(0)
+  const elevs = useRef<number[]>([])
 
   // A new engine (new field) measures again.
-  useEffect(() => { done.current = false; samples.current = []; pending.current = null; setProbeBusy(false) }, [mod])
+  useEffect(() => { done.current = false; samples.current = []; pending.current = null; stp.current = null; cand.current = 0; elevs.current = []; setProbeBusy(false) }, [mod])
 
   useFrame(() => {
     if (!mod || done.current) return
@@ -69,18 +85,30 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
       // 10 deg east of north = (+0.17, 0, -0.98) here, which the rolling
       // aircraft's velocity confirms (local kiosk test).
       const d: [number, number] = [-Math.sin(h), -Math.cos(h)]
-      pending.current = { spawn: [p[0] + d[0] * SPAWN_AHEAD_M, 0, p[2] + d[1] * SPAWN_AHEAD_M], dir: d, stp: names[0] }
+      stp.current = { p: [p[0], p[1], p[2]], d }
+      pending.current = { spawn: apronSpot(p, d, SIDE_CANDIDATES[0]), dir: d, stp: names[0] }
       setProbeBusy(true) // the beacon stops writing its own probe point meanwhile
     }
     // Field elevation under the spawn, from the engine's ground probe (median of a few frames).
     const gp = mod._FsVrGroundProbeDataPointer() >> 2
-    const sp = pending.current.spawn
-    if (f[gp + 3] !== 0 && Math.abs(f[gp] - sp[0]) < 0.5 && Math.abs(f[gp + 1] - sp[2]) < 0.5) samples.current.push(f[gp + 2])
-    f[gp] = sp[0]
-    f[gp + 1] = sp[2]
+    const q = pending.current.spawn
+    if (f[gp + 3] !== 0 && Math.abs(f[gp] - q[0]) < 0.5 && Math.abs(f[gp + 1] - q[2]) < 0.5) samples.current.push(f[gp + 2])
+    f[gp] = q[0]
+    f[gp + 1] = q[2]
     if (samples.current.length < ELEV_SAMPLES) return
     const sorted = [...samples.current].sort((a, b) => a - b)
-    const elev = sorted[sorted.length >> 1]
+    elevs.current.push(sorted[sorted.length >> 1])
+    samples.current = []
+    if (elevs.current.length < SIDE_CANDIDATES.length) {
+      cand.current = elevs.current.length
+      pending.current = { ...pending.current, spawn: apronSpot(stp.current!.p, stp.current!.d, SIDE_CANDIDATES[cand.current]) }
+      return
+    }
+    let pick = 0
+    for (let i = 1; i < SIDE_CANDIDATES.length; i++) if (Math.abs(elevs.current[i] - elevs.current[0]) < SIDE_LEVEL_M) { pick = i; break }
+    const elev = elevs.current[pick]
+    const sp = apronSpot(stp.current!.p, stp.current!.d, SIDE_CANDIDATES[pick])
+    console.info(`[ysfx] apron: start position y ${stp.current!.p[1].toFixed(1)} m, runway ${elevs.current[0].toFixed(1)} m, right ${elevs.current[1].toFixed(1)} m, left ${elevs.current[2].toFixed(1)} m -> ${['on the runway', 'right', 'left'][pick]}`)
     const next: Apron = { ...pending.current, spawn: [sp[0], elev, sp[2]], elev }
     done.current = true
     setProbeBusy(false)
@@ -94,14 +122,18 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
     // floor; before that they fell and were respawned -- production, 2026-11-10).
     const here = readFeet(users, feetTmp.current) ?? camera.position
     const movedFar = localSeatId() === null && Math.hypot(next.spawn[0] - here.x, next.spawn[2] - here.z) > 150
-    if (movedFar) teleport({ position: [next.spawn[0], elev + 0.5, next.spawn[2]], yaw: (Math.atan2(next.dir[0], -next.dir[1]) * 180) / Math.PI })
+    if (movedFar) teleport({ position: [next.spawn[0], elev + 0.5, next.spawn[2]], yaw: (Math.atan2(-next.dir[0], -next.dir[1]) * 180) / Math.PI })
   })
 
   const [sx, , sz] = apron.spawn
   const [dx, dz] = apron.dir
   const rx = -dz, rz = dx // runway-right
   const yaw = Math.atan2(-dx, -dz) // the kiosk stands ahead of the spawn and faces back toward it (-d)
-  const spawnYawDeg = (Math.atan2(dx, -dz) * 180) / Math.PI // the visitor faces along the runway, at the kiosk (+d)
+  // The visitor faces along the runway, at the kiosk (+d).  The host's yaw is a
+  // three.js rotation about +y: forward (-sin, -cos).  The sign was the other
+  // way until 2026-11-11 -- 20 deg off at Atsugi (heading 10 deg), unnoticed;
+  // 153 deg off at Matsushima RW25 in production.
+  const spawnYawDeg = (Math.atan2(-dx, -dz) * 180) / Math.PI
   const e = apron.elev
   const tiles: Array<[number, number]> = []
   const half = Math.floor(GROUND_TILES_PER_SIDE / 2)
@@ -129,7 +161,10 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
         ))}
       </RigidBody>
 
-      <group position={[sx, e + 0.5, sz]}>
+      {/* Keyed by the place: the platform's SpawnPoint reports its position
+          once, when mounted, so a new field needs a new one -- otherwise a
+          respawn on any other field lands on Atsugi's apron. */}
+      <group key={`spawn:${sx},${e},${sz}`} position={[sx, e + 0.5, sz]}>
         <SpawnPoint yaw={spawnYawDeg} />
       </group>
     </>
