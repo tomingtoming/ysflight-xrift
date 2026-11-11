@@ -13,6 +13,7 @@ import { SessionPanel } from './net/SessionPanel'
 import { NetSession, type NetRole } from './net/NetSession'
 import { RemoteAircraftSeats } from './net/RemoteAircraftSeats'
 import { DevHooks } from './net/DevHooks'
+import { FrameTrace } from './net/FrameTrace'
 import { lobbyStpHeadings, lobbyStpNames, lobbyStpPositions } from './net/netState'
 import { localSeatId, publishApron, setProbeBusy } from './net/StateBeacon'
 import { readFeet } from './net/seatLead'
@@ -148,6 +149,7 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
       <CockpitSeat home={[sx + 6 * rx - 2 * dx, e + 0.5, sz + 6 * rz - 2 * dz]} homeYaw={yaw} respawn={{ position: [sx, e + 0.5, sz], yaw: spawnYawDeg }} />
       <RemoteAircraftSeats />
       <GroundPatch />
+      <FrameTrace />
       {import.meta.env.DEV ? <DevHooks onField={setField} /> : null}
 
       {/* Walkable ground: flat tiles at the field's apron elevation (the

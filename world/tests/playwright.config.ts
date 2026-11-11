@@ -38,7 +38,7 @@ export default defineConfig({
     viewport: { width: 1280, height: 720 },
     // The host asks for a microphone before "入室する": grant a fake one.
     permissions: ['microphone'],
-    launchOptions: { args: ['--autoplay-policy=no-user-gesture-required', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] },
+    launchOptions: { args: ['--autoplay-policy=no-user-gesture-required', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', ...(process.env.YSFX_ARGS ? process.env.YSFX_ARGS.split(' ') : [])] },
     trace: 'retain-on-failure',
   },
   projects: [

@@ -344,3 +344,54 @@ test('desktop: carrier start; leaving the seat on the deck, the pilot stands on 
   expect(Math.abs(stood.ground.feet![1] - stood.ground.field!)).toBeLessThan(0.3)
   await page.screenshot({ path: test.info().outputPath('pc-carrier-deck.png') })
 })
+
+// A measurement, not a gate (YSFX_TRACE=1): frame by frame at speed, where
+// the simulation has the aircraft, where the host has the camera, where it
+// has the body.  Run headed on a 120 Hz display, or with YSFX_ARGS to lift
+// the frame-rate cap, to see what a pilot on such a display sees.
+test('trace: aircraft, camera and body frame by frame at speed', async ({ page }) => {
+  test.skip(!process.env.YSFX_TRACE, 'measurement only')
+  test.setTimeout(300_000)
+  await kioskStart(page)
+  if (process.env.YSFX_TRACE_KEY) { await page.keyboard.press(process.env.YSFX_TRACE_KEY); await page.waitForTimeout(500) }
+  for (let i = 0; i < 25; i++) { await page.keyboard.press('q'); await page.waitForTimeout(40) }
+  await page.keyboard.press('Tab')
+  await waitForBeacon(page, (x) => !!x.flight && x.flight[1] > 90, 90_000, 'speed')
+  // Rolling input while the trace runs.
+  await page.screenshot({ path: test.info().outputPath('trace-view.png') })
+  await page.keyboard.down('ArrowRight')
+  await page.evaluate(() => { (window as unknown as { __ysfxTrace: number }).__ysfxTrace = 480 })
+  await page.waitForFunction(() => !!(window as unknown as { __ysfxTraceData?: unknown }).__ysfxTraceData, null, { timeout: 60_000 })
+  const rows = await page.evaluate(() => (window as unknown as { __ysfxTraceData: number[][] }).__ysfxTraceData)
+  await page.keyboard.up('ArrowRight')
+  const fs = await import('node:fs')
+  fs.writeFileSync(test.info().outputPath('trace.json'), JSON.stringify(rows))
+  const n = rows.length
+  const a0 = rows[0], a1 = rows[n - 1]
+  const d = [a1[2] - a0[2], a1[3] - a0[3], a1[4] - a0[4]]
+  const L = Math.hypot(d[0], d[1], d[2])
+  const u = d.map((x) => x / L)
+  const along = (r: number[], k: number) => (r[k] - a0[2]) * u[0] + (r[k + 1] - a0[3]) * u[1] + (r[k + 2] - a0[4]) * u[2]
+  const st = (v: number[]) => { const m = v.reduce((p, c) => p + c, 0) / v.length; return { mean: m, sd: Math.sqrt(v.reduce((p, c) => p + (c - m) ** 2, 0) / v.length), min: Math.min(...v), max: Math.max(...v) } }
+  const fmt = (s: { mean: number; sd: number; min: number; max: number }, k = 1) => `mean ${(s.mean * k).toFixed(2)} sd ${(s.sd * k).toFixed(2)} min ${(s.min * k).toFixed(2)} max ${(s.max * k).toFixed(2)}`
+  const dts: number[] = [], wall: number[] = [], sa: number[] = [], sc: number[] = [], sf: number[] = []
+  for (let i = 1; i < n; i++) {
+    dts.push(rows[i][0] - rows[i - 1][0]); wall.push(rows[i][1] - rows[i - 1][1])
+    sa.push(along(rows[i], 2) - along(rows[i - 1], 2)); sc.push(along(rows[i], 5) - along(rows[i - 1], 5)); sf.push(along(rows[i], 8) - along(rows[i - 1], 8))
+  }
+  const lagC = rows.map((r) => along(r, 2) - along(r, 5)), lagF = rows.map((r) => along(r, 2) - along(r, 8))
+  const dLagC = lagC.slice(1).map((x, i) => x - lagC[i]), dLagF = lagF.slice(1).map((x, i) => x - lagF[i])
+  const speed = L / ((a1[0] - a0[0]) / 1000)
+  console.log(`[trace] ${n} frames, speed ${speed.toFixed(1)} m/s`)
+  console.log(`[trace] frame clock dt ms: ${fmt(st(dts))}; wall dt ms: ${fmt(st(wall))}`)
+  console.log(`[trace] per-frame travel cm -- aircraft: ${fmt(st(sa), 100)}; camera: ${fmt(st(sc), 100)}; body: ${fmt(st(sf), 100)}`)
+  console.log(`[trace] frames the body did not move: ${sf.filter((x) => Math.abs(x) < 1e-4).length}/${sf.length}; camera did not move: ${sc.filter((x) => Math.abs(x) < 1e-4).length}/${sc.length}`)
+  console.log(`[trace] aircraft ahead of camera, cm: ${fmt(st(lagC), 100)}; frame-to-frame change sd ${(st(dLagC).sd * 100).toFixed(2)}`)
+  console.log(`[trace] aircraft ahead of body, cm: ${fmt(st(lagF), 100)}; frame-to-frame change sd ${(st(dLagF).sd * 100).toFixed(2)}`)
+  const ang = (q1: number[], q2: number[]) => { const d = Math.abs(q1[0] * q2[0] + q1[1] * q2[1] + q1[2] * q2[2] + q1[3] * q2[3]); return 2 * Math.acos(Math.min(1, d)) * 180 / Math.PI }
+  const rel = rows.slice(1).map((r, i) => ang(r.slice(11, 15), rows[i].slice(11, 15)))
+  const air = rows.slice(1).map((r, i) => ang(r.slice(15, 19), rows[i].slice(15, 19)))
+  console.log(`[trace] aircraft attitude change per frame, deg: ${fmt(st(air))}; camera attitude in the aircraft frame, change per frame, deg: ${fmt(st(rel))}`)
+  console.log(`[trace] attitude, first frames (aircraft deg / camera-in-aircraft deg): ${air.slice(0, 16).map((x, i) => `${x.toFixed(2)}/${rel[i].toFixed(2)}`).join('  ')}`)
+  console.log(`[trace] first frames (dt ms | travel cm aircraft/camera/body): ${dts.slice(0, 16).map((t, i) => `${t.toFixed(1)}|${(sa[i] * 100).toFixed(0)}/${(sc[i] * 100).toFixed(0)}/${(sf[i] * 100).toFixed(0)}`).join('  ')}`)
+})
