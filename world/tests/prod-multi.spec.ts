@@ -136,6 +136,11 @@ test('two pilots in one instance: host + client, client sees the host aircraft',
   console.log(`[multi] client sees: ${JSON.stringify(remote)}`)
   console.log(`[multi] client feet when it sees the host: ${JSON.stringify(seen.ground.feet?.map((n) => +n.toFixed(1)))} seat ${seen.seat} apron ${JSON.stringify(seen.apron?.spawn.map((n) => +n.toFixed(1)))}`)
   expect(remote.length).toBeGreaterThanOrEqual(1)
+  // Where does the client's host put the seated pilot's avatar: in the aircraft
+  // (position sync) or on the client's own copy of the seat (seat-id sync)?
+  await client.waitForTimeout(1500)
+  const cs = (await lastBeacon(client))!
+  console.log(`[multi] avatars as the client's host reports them: ${JSON.stringify(cs.others?.map((o) => o.pos.map((n) => +n.toFixed(1))))}; host aircraft ${JSON.stringify(remote[0].pos.map((n) => +n.toFixed(1)))}; host's own feet ${JSON.stringify((await lastBeacon(host))!.ground.feet?.map((n) => +n.toFixed(1)))}; client's apron ${JSON.stringify(cs.apron?.spawn.map((n) => +n.toFixed(1)))}`)
   await host.screenshot({ path: test.info().outputPath('multi-host-flying.png') })
   await client.screenshot({ path: test.info().outputPath('multi-client-sees.png') })
 

@@ -35,6 +35,8 @@ export interface YsfxBeacon {
   hud: string[] | null
   /** Seat id the local user occupies (BoardingSeat), null when standing. */
   seat: string | null
+  /** Where the host says the other visitors are (their avatars), world. */
+  others?: Array<{ id: string; pos: number[] }>
   /** Engine draw calls so far (per-eye in XR) -- tells whether the engine renders at all. */
   draws: number
   bg: number
@@ -145,7 +147,7 @@ export function publishApron(a: { spawn: number[]; dir: number[]; elev: number; 
 export function StateBeacon({ role, room, field }: { role: NetRole | null; room: string | null; field: string | null }) {
   const mod = useEngine()
   const gl = useThree((s) => s.gl)
-  const users = useUsers() as unknown as { getLocalMovement?: () => { position?: unknown } | null }
+  const users = useUsers() as unknown as { getLocalMovement?: () => { position?: unknown } | null; remoteUsers?: Array<{ id: string }>; getMovement?: (id: string) => { position?: unknown } | undefined }
   const camera = useThree((s) => s.camera)
   const acc = useRef(0)
   const v = useRef(new Vector3())
@@ -163,7 +165,14 @@ export function StateBeacon({ role, room, field }: { role: NetRole | null; room:
     const feet: number[] | null = fv ? fv.toArray() : null
     // The surface under the local player, as the engine answered GroundPatch's probe.
     const fieldElev: number | null = groundUnder && !probeBusy ? groundUnder.height : null
+    const others: Array<{ id: string; pos: number[] }> = []
+    for (const u of users.remoteUsers ?? []) {
+      const p = users.getMovement?.(u.id)?.position as unknown
+      if (Array.isArray(p)) others.push({ id: u.id, pos: [+p[0], +p[1], +p[2]] })
+      else if (p && typeof p === 'object') { const o = p as { x: number; y: number; z: number }; others.push({ id: u.id, pos: [o.x, o.y, o.z] }) }
+    }
     const detail: YsfxBeacon = {
+      others,
       t: Date.now(), role, room, net: null, flight: null, aircraft: [], hud: hudLines, seat: localSeat, draws: ysfxStats.draws, bg: ysfxStats.bgTicks, ctl: null, lobby: lobbyCounts ? [...lobbyCounts, kioskClicks(), kioskJoinPending() ? 1 : 0] : null, kiosk: kioskHovers(),
       ground: { cam: v.current.y, feet, field: fieldElev, deck: !!groundUnder?.deck },
       vr: { ...saccStatus, right: { ...saccStatus.right }, left: { ...saccStatus.left } },

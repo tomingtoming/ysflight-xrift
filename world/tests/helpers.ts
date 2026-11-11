@@ -64,6 +64,7 @@ export interface Beacon {
   aircraft: Array<{ id: number; alive: boolean; player: boolean; name: string; pos: number[] }>
   hud: string[] | null
   seat: string | null
+  others?: Array<{ id: string; pos: number[] }>
   draws: number
   bg: number
   cam: { pos: number[]; quat: number[] } | null
