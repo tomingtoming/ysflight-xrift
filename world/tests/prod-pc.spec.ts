@@ -508,8 +508,14 @@ test('desktop: the loading column by crosshair -- one AIM-9 off, less fuel -- an
   const press = async (name: string) => {
     const item = (await lastBeacon(page))!.kioskItems.find((i) => i.name === name)
     if (!item) throw new Error(`${name} is not in the loading column`)
-    const aim = await walkAndAim(page, look, walk, 3.0, { id: name, p: item.pos })
-    console.log(`[loadout:prod aim] ${name} dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
+    await walkAndAim(page, look, walk, 3.0, { id: name, p: item.pos })
+    // The buttons are 7.6 cm wide: at 3 m that is 0.7 degree each side (a 0.8 degree miss did nothing in the dev environment).
+    let aim = await aimError(page, { id: name, p: item.pos })
+    for (let it = 0; it < 10 && (Math.abs(aim.dyaw) > 0.2 || Math.abs(aim.dpitch) > 0.2); it++) {
+      await look(aim.dyaw * 0.9, aim.dpitch * 0.9)
+      aim = await aimError(page, { id: name, p: item.pos })
+    }
+    console.log(`[loadout:prod aim] ${name} dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(2)} dpitch ${aim.dpitch.toFixed(2)}`)
     await page.mouse.click(cur.mx, cur.my)
     await page.waitForTimeout(700)
   }

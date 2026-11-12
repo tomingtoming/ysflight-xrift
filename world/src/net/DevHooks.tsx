@@ -6,6 +6,8 @@
  *   window.__ysfxLobbyStart(air, stp)  what the kiosk's 飛行開始 does
  *   window.__ysfxSetField(field)  what the host's field pick does
  *   window.__ysfxPatchFocus(x, z)  lay the ground patch around a point instead of the player (null args: back to the player)
+ *   window.__ysfxApronAt(x, y, z)  move the apron -- and with its spawn point the dev player, who follows it;
+ *                              the host's teleport does nothing here (tests walk on slopes far from the airfield)
  *   window.__ysfxGroundRay(x, z)   height of the highest collider under a point (a physics ray straight down)
  *   window.__ysfxLoadout(air, changes, fuel, smoke)  what the kiosk's loading column does: start from
  *                              the template's default, apply [FSWEAPONTYPE, n] pairs, set fuel % / smoke
@@ -23,7 +25,7 @@ import { setDevBodyLag } from './seatLead'
 import { setDevPatchFocus } from './GroundPatch'
 import { loadoutChange, loadoutSetAircraft, loadoutSetFuel, loadoutSetSmoke, readLoadout } from './loadout'
 
-export function DevHooks({ onField }: { onField?: (field: string) => void }) {
+export function DevHooks({ onField, onApron }: { onField?: (field: string) => void; onApron?: (x: number, y: number, z: number) => void }) {
   const seat = useSeatContext() as unknown as Record<string, unknown>
   const mod = useEngine()
   const { world, rapier } = useRapier()
@@ -55,6 +57,7 @@ export function DevHooks({ onField }: { onField?: (field: string) => void }) {
       return 'requested'
     }
     w.__ysfxPatchFocus = (x?: number | null, z?: number | null) => { setDevPatchFocus(x == null || z == null ? null : { x, z }); return 'set' }
+    w.__ysfxApronAt = (x: number, y: number, z: number) => { if (!onApron) return 'no apron'; onApron(x, y, z); return 'moved' }
     w.__ysfxGroundRay = (x: number, z: number) => {
       const top = 20000
       const hit = world.castRay(new rapier.Ray({ x, y: top, z }, { x: 0, y: -1, z: 0 }), 2 * top, true)
@@ -75,11 +78,12 @@ export function DevHooks({ onField }: { onField?: (field: string) => void }) {
       delete w.__ysfxLoadout
       delete w.__ysfxPatchFocus
       delete w.__ysfxGroundRay
+      delete w.__ysfxApronAt
       delete w.__ysfxSit
       delete w.__ysfxStand
       delete w.__ysfxSetField
       delete w.__ysfxBodyLag
     }
-  }, [seat, mod, onField, world, rapier])
+  }, [seat, mod, onField, onApron, world, rapier])
   return null
 }

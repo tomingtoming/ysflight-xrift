@@ -62,3 +62,53 @@ test('loading column: the default, the limits, and a chosen loading reach the ai
   fly2.loadout!.editor.slots.forEach((s, k) => expect(c2.counts[k], `weapon type ${s.type}`).toBe(slot(other, s.type).num))
   await page.screenshot({ path: test.info().outputPath('loadout-kiosk.png') })
 })
+
+// The same column by the crosshair, as a desktop visitor uses it: pointer
+// lock by a click, aim at a button (its world centre is in the beacon), click.
+test('loading column by crosshair: minus takes one AIM-9 off, fuel steps down, smoke toggles', async ({ page }) => {
+  const { aimError, walkAndAim, lastBeacon } = await import('./helpers')
+  const DEG_PER_PX = 0.115
+  await watchBeacon(page)
+  await page.goto(`http://localhost:5173/?ysfxnet=host:${ROOM}`)
+  const b0 = await waitForBeacon(page, (b) => b.role === 'host' && !!b.net && b.net.ready && !!b.loadout?.editor.valid && b.kioskItems.some((i) => i.name === 'lo-:1') && !!b.cam && !!b.apron, 90_000, 'loading column shown')
+  const before = b0.loadout!.editor
+  await page.mouse.click(640, 360)
+  await page.waitForTimeout(800)
+  const locked = await page.evaluate(() => !!document.pointerLockElement)
+  console.log(`[loadout:click] pointer lock ${locked}`)
+  expect(locked).toBe(true)
+  const cur = { mx: 640, my: 360 }
+  const look = async (dyaw: number, dpitch: number) => {
+    const dx = -dyaw / DEG_PER_PX, dy = -dpitch / DEG_PER_PX
+    cur.mx += dx; cur.my += dy
+    await page.mouse.move(cur.mx, cur.my, { steps: Math.max(2, Math.ceil(Math.hypot(dx, dy) / 20)) })
+    await page.waitForTimeout(350)
+  }
+  const walk = async (ms: number) => { await page.keyboard.down('w'); await page.waitForTimeout(ms); await page.keyboard.up('w') }
+  const press = async (name: string) => {
+    const item = (await lastBeacon(page))!.kioskItems.find((i) => i.name === name)
+    if (!item) throw new Error(`${name} is not in the loading column`)
+    const aim = await walkAndAim(page, look, walk, 3.2, { id: name, p: item.pos })
+    // The buttons are 7.6 cm wide: at 3 m that is 0.7 degree each side.
+    let left = await aimError(page, { id: name, p: item.pos })
+    for (let it = 0; it < 10 && (Math.abs(left.dyaw) > 0.2 || Math.abs(left.dpitch) > 0.2); it++) {
+      await look(left.dyaw * 0.9, left.dpitch * 0.9)
+      left = await aimError(page, { id: name, p: item.pos })
+    }
+    console.log(`[loadout:click] ${name}: ${aim.dist.toFixed(2)} m away, off by ${left.dyaw.toFixed(2)} / ${left.dpitch.toFixed(2)} deg`)
+    await page.mouse.click(cur.mx, cur.my)
+    await page.waitForTimeout(700)
+  }
+  const AIM9 = 1
+  const n0 = before.slots.find((s) => s.type === AIM9)!.num
+  await press('lo-:1')
+  await waitForBeacon(page, (b) => b.loadout!.editor.slots.find((s) => s.type === AIM9)!.num === n0 - 1, 8_000, 'one AIM-9 off')
+  await press('lo+:1')
+  await waitForBeacon(page, (b) => b.loadout!.editor.slots.find((s) => s.type === AIM9)!.num === n0, 8_000, 'and back on')
+  await press('fuel-')
+  await waitForBeacon(page, (b) => b.loadout!.editor.fuel === before.fuel - 10, 8_000, 'fuel down 10 %')
+  await press('smoke')
+  const end = await waitForBeacon(page, (b) => b.loadout!.editor.smoke !== before.smoke, 8_000, 'smoke toggled')
+  console.log(`[loadout:click] AIM-9 ${n0} -> ${n0 - 1} -> ${n0}, fuel ${before.fuel} -> ${end.loadout!.editor.fuel}, smoke ${before.smoke} -> ${end.loadout!.editor.smoke}`)
+  await page.screenshot({ path: test.info().outputPath('loadout-clicked.png') })
+})

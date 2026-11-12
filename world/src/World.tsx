@@ -2,7 +2,7 @@ import { SpawnPoint, useTeleport, useUsers } from '@xrift/world-components'
 import { CuboidCollider, RigidBody } from '@react-three/rapier'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Vector3 } from 'three'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useEngine } from './engine/engineStore'
 import { setLoad } from './engine/loadStore'
 import { ControlsSign } from './net/ControlsSign'
@@ -71,6 +71,8 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
   /** The heightfield under the local player has its first answer: the flat stand-in floor can go. */
   const [terrain, setTerrain] = useState(false)
   const done = useRef(false)
+  /** Dev only: stand the apron (and the dev player, who follows its spawn point) somewhere else. */
+  const devApronAt = useCallback((x: number, y: number, z: number) => setApron((a) => ({ ...a, spawn: [x, y, z], elev: y })), [])
   const samples = useRef<number[]>([])
   const pending = useRef<Omit<Apron, 'elev'> | null>(null)
   const stp = useRef<{ p: [number, number, number]; d: [number, number] } | null>(null)
@@ -160,7 +162,7 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
       <RemoteAircraftSeats />
       <GroundPatch onReady={setTerrain} />
       <FrameTrace />
-      {import.meta.env.DEV ? <DevHooks onField={setField} /> : null}
+      {import.meta.env.DEV ? <DevHooks onField={setField} onApron={devApronAt} /> : null}
 
       {/* Walkable ground.  Once the engine has loaded the field, GroundPatch
           lays a heightfield of the real terrain under the local player

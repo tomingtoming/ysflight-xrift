@@ -19,7 +19,7 @@ const ROOM = '12345684'
 const FIELDS = (process.env.YSFX_TERRAIN_FIELDS ?? 'HAWAII').split(',')
 const SNAP = 8
 
-type Hooks = { __ysfxPatchFocus: (x?: number | null, z?: number | null) => string; __ysfxGroundRay: (x: number, z: number) => number | null; __ysfxSetField: (f: string) => string }
+type Hooks = { __ysfxApronAt: (x: number, y: number, z: number) => string; __ysfxPatchFocus: (x?: number | null, z?: number | null) => string; __ysfxGroundRay: (x: number, z: number) => number | null; __ysfxSetField: (f: string) => string }
 
 /** Lay the patch around (x, z) and wait until both the patch and the probe answer for it. */
 async function focus(page: Page, x: number, z: number): Promise<Beacon> {
@@ -88,6 +88,38 @@ test('the visitor stands on the heightfield; on a slope it lies where the engine
     console.log(`[terrain] ${field}: ${rows.join(' | ')}`)
     console.log(`[terrain] ${field}: worst collider - engine ${worst.toFixed(3)} m`)
     expect(worst).toBeLessThan(0.3)
+
+    // Now with a body: put the visitor on that slope and walk.  The patch is
+    // rebuilt under their feet every 8 m; they must stay on the ground the
+    // engine reports, never under it.
+    const top = (await focus(page, found!.x, found!.z)).ground.field!
+    await page.evaluate(() => (window as unknown as Hooks).__ysfxPatchFocus(null, null))
+    await page.evaluate(([x, y, z]) => (window as unknown as Hooks).__ysfxApronAt(x, y, z), [found!.x, top, found!.z])
+    const landed = await waitForBeacon(page, (b) => !!b.ground.feet && Math.hypot(b.ground.feet[0] - found!.x, b.ground.feet[2] - found!.z) < 3 && b.ground.field != null && Math.abs(b.ground.feet[1] - b.ground.field) < 0.15 && !!b.ground.patch && Math.abs(b.ground.patch.cx - b.ground.feet[0]) <= SNAP, 15_000, 'standing on the slope')
+    const builds0 = landed.ground.patch!.builds
+    const start = landed.ground.feet!
+    let lo = Infinity, hi = -Infinity, yMin = Infinity, yMax = -Infinity, n = 0, lastT = 0
+    await page.keyboard.down('w')
+    const t0 = Date.now()
+    while (Date.now() - t0 < 12_000) {
+      const b = await lastBeacon(page)
+      if (b && b.t !== lastT && b.ground.feet && b.ground.field != null) {
+        lastT = b.t
+        const d = b.ground.feet[1] - b.ground.field
+        lo = Math.min(lo, d); hi = Math.max(hi, d); yMin = Math.min(yMin, b.ground.feet[1]); yMax = Math.max(yMax, b.ground.feet[1]); n++
+      }
+      await page.waitForTimeout(40)
+    }
+    await page.keyboard.up('w')
+    await page.waitForTimeout(1500)
+    const end = (await lastBeacon(page))!
+    const walked = Math.hypot(end.ground.feet![0] - start[0], end.ground.feet![2] - start[2])
+    console.log(`[terrain] ${field}: walked ${walked.toFixed(1)} m, height ${yMin.toFixed(2)}..${yMax.toFixed(2)} m, feet - engine ground while walking ${lo.toFixed(2)}..${hi >= 0 ? '+' : ''}${hi.toFixed(2)} m over ${n} samples, at rest ${(end.ground.feet![1] - end.ground.field!).toFixed(3)} m, patch rebuilt ${end.ground.patch!.builds - builds0} times`)
+    expect(walked).toBeGreaterThan(20)
+    expect(yMax - yMin).toBeGreaterThan(0.3) // it really was a slope
+    expect(end.ground.patch!.builds - builds0).toBeGreaterThanOrEqual(2)
+    expect(lo).toBeGreaterThan(-0.3)
+    expect(Math.abs(end.ground.feet![1] - end.ground.field!)).toBeLessThan(0.15)
   }
   await page.evaluate(() => (window as unknown as Hooks).__ysfxPatchFocus(null, null))
 })

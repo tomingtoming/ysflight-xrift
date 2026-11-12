@@ -252,7 +252,7 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
   }, [onField, field])
 
   const loButton = (name: string, label: string, enabled: boolean, press: () => void) => (
-    <Container width={56} height={46} borderRadius={8} justifyContent="center" alignItems="center"
+    <Container width={76} height={46} borderRadius={8} justifyContent="center" alignItems="center"
       backgroundColor={enabled ? 0x444444 : 0x2a2a2a} hover={{ backgroundColor: enabled ? 0x666666 : 0x2a2a2a }} cursor="pointer"
       onClick={(e) => { if (deliberate(e) && enabled && mod) { press(); refreshLoadout() } }}
       ref={(r: unknown) => { if (r) loItemRefs.current.set(name, r); else loItemRefs.current.delete(name) }}>
@@ -264,7 +264,7 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
       <Text fontSize={26} color={0xffffff}>{label}</Text>
       <Container flexDirection="row" alignItems="center" gap={8}>
         {minus}
-        <Container width={120} justifyContent="center" alignItems="center"><Text fontSize={26} color={0xffffff}>{value}</Text></Container>
+        <Container width={110} justifyContent="center" alignItems="center"><Text fontSize={26} color={0xffffff}>{value}</Text></Container>
         {plus}
       </Container>
     </Container>
