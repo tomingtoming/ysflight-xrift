@@ -58,6 +58,7 @@ export async function enterWorld(page: Page, worldUrl: string): Promise<string> 
 export interface Beacon {
   t: number
   role: 'host' | 'client' | null
+  election?: { cls: number; hostId: string | null; hostClass?: number; beat?: number }
   room: string | null
   net: { mode: number; ready: boolean; state: number; waiting: boolean; playerAirId: number; connected: number; runState: number; fatal: number; rejected: number; mission?: number } | null
   flight: number[] | null

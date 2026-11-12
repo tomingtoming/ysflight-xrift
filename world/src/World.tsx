@@ -190,11 +190,16 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
   )
 }
 
+// One function for the life of the module: NetSession keeps the airfield element while its inputs are unchanged.
+const renderAirfield = (role: NetRole, _pilot: string, room: string | null, field: string, setField: ((f: string) => void) | undefined) => (
+  <Airfield role={role} room={room} field={field} setField={setField} />
+)
+
 export const World: React.FC<WorldProps> = ({ position = [0, 0, 0] }) => {
   return (
     <group position={position}>
       <NetSession>
-        {(role, _pilot, room, field, setField) => <Airfield role={role} room={room} field={field} setField={setField} />}
+        {renderAirfield}
       </NetSession>
       <ambientLight intensity={0.6} />
       <directionalLight position={[50, 100, 50]} intensity={1.2} />

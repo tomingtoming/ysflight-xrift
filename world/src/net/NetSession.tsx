@@ -1,19 +1,23 @@
 /**
  * NetSession — one XRift instance = one YSFLIGHT network session.
  *
- * Host election (toming's call, 2026-11-08): the first browser in the
- * instance runs the engine in -server mode and registers a signaling room;
- * everyone else boots -client against that room.  When the host leaves the
- * instance a remaining user claims the room with a fresh code and every
- * engine restarts in its new role.  The election lives in XRift instance
+ * Host election (toming's call, 2026-11-08): one browser in the instance
+ * runs the engine in -server mode and registers a signaling room; everyone
+ * else boots -client against that room.  When the host leaves the instance,
+ * stalls, or a better device can take over an idle session, a remaining
+ * user claims the room with a fresh code and every engine restarts in its
+ * new role (the rules: election.ts).  The election lives in XRift instance
  * state ('ysfx-net'), so no extra service is needed to agree on the host.
  */
 import { useInstanceState, useUsers } from '@xrift/world-components'
 import { useFrame } from '@react-three/fiber'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useEngine } from '../engine/engineStore'
 import { YsflightEngine } from '../engine/YsflightEngine'
-import { pilotNameOf, readNetState, type NetState } from './netState'
+import { airBase, airCount, airName, pilotNameOf, readNetState, type NetState } from './netState'
+import { BEAT_MS, decide, deviceClass, mayClaim, type Reason } from './election'
+import { ysfxStats } from '../engine/YsflightEngine'
+import { isCoarsePointer } from './TouchConsole'
 import { StateBeacon } from './StateBeacon'
 
 export interface NetSessionState {
@@ -22,6 +26,9 @@ export interface NetSessionState {
    *  and only the tab that claimed may run the server (measured 2026-11-09:
    *  without it both tabs booted -server on the same room). */
   hostNonce?: string
+  /** Device class of the host and its heartbeat (election.ts). */
+  hostClass?: number
+  beat?: number
   room: string | null
   since: number
   /** The field (airfield) the session flies; only the host writes it, every engine restarts on a change. */
@@ -66,6 +73,33 @@ function ClientWatchdog({ onStall }: { onStall: () => void }) {
   return null
 }
 
+/**
+ * Since when nobody has had an aircraft out, as this client's engine sees it
+ * (connected and ready): what a better device waits for before it takes the
+ * host seat (election.ts).  null while anyone flies or the engine cannot tell.
+ */
+function IdleWatch({ idleSince }: { idleSince: React.MutableRefObject<number | null> }) {
+  const mod = useEngine()
+  const ns = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
+  const acc = useRef(0)
+  useEffect(() => { idleSince.current = null; return () => { idleSince.current = null } }, [mod, idleSince])
+  useFrame((_s, dt) => {
+    acc.current += dt
+    if (acc.current < 0.5) return
+    acc.current = 0
+    let idle = false
+    if (mod && readNetState(mod, ns.current).ready) {
+      idle = true
+      const n = airCount(mod)
+      // Pilots carry a name; a field's own traffic and mission aircraft do not, and nobody loses a flight when those restart.
+      for (let i = 0; i < n; i++) if (mod.HEAPF32[airBase(mod, i) + 1] !== 0 && airName(mod, i) !== '') { idle = false; break }
+    }
+    if (!idle) idleSince.current = null
+    else if (idleSince.current === null) idleSince.current = Date.now()
+  })
+  return null
+}
+
 export interface NetSessionProps {
   /** `setField` is defined for the host only (toming's call, 2026-11-09: the host alone may change the map). */
   children?: (role: NetRole, pilotName: string, room: string | null, field: string, setField: ((field: string) => void) | undefined) => React.ReactNode
@@ -83,23 +117,55 @@ export function NetSession({ children }: NetSessionProps) {
   const me = localUser ?? { id: 'local', displayName: 'pilot' }
   const pilotName = useMemo(() => pilotNameOf(me), [me.id, me.displayName]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Claim the host seat when nobody present holds it.  A newcomer may see an
-  // empty user list for a moment, so wait before claiming and re-check the
-  // synced state at claim time (functional update).
+  // The host seat: who claims it and when is election.ts (desktops before
+  // phones before headsets; a stalled host is replaced; a better device takes
+  // over an idle session).  Looked at twice a second, on refs, so a re-render
+  // neither delays nor repeats a claim.
+  const myClass = useMemo(() => {
+    const q = import.meta.env.DEV ? /[?&]ysfxclass=(\d)/.exec(location.search) : null
+    return q ? Number(q[1]) : deviceClass(navigator.userAgent, isCoarsePointer())
+  }, [])
+  const view = useRef({ net, present: [me.id], vacantSince: null as number | null, beatSeenAt: Date.now(), beatKey: '' })
+  const idleSince = useRef<number | null>(null)
+  view.current.net = net
+  view.current.present = [me.id, ...remoteUsers.map((u) => u.id)]
   useEffect(() => {
-    const present = new Set([me.id, ...remoteUsers.map((u) => u.id)])
-    const hostAlive = net.hostId !== null && present.has(net.hostId)
-    if (hostAlive) return
-    const candidates = [...present].sort()
-    if (candidates[0] !== me.id) return // lowest id among those present claims; the rest wait
-    const timer = setTimeout(() => {
-      setNet((prev) => {
-        if (prev.hostId !== null && present.has(prev.hostId)) return prev
-        return { hostId: me.id, hostNonce: nonce, room: makeRoom(), since: Date.now() }
-      })
-    }, 2500)
-    return () => clearTimeout(timer)
-  }, [net.hostId, me.id, nonce, remoteUsers, setNet])
+    const tick = () => {
+      const v = view.current
+      const now = Date.now()
+      const held = v.net.hostId !== null && v.present.includes(v.net.hostId)
+      if (held) v.vacantSince = null
+      else if (v.vacantSince === null) v.vacantSince = now
+      const key = `${v.net.hostId}:${v.net.hostNonce}:${v.net.beat}`
+      if (key !== v.beatKey) { v.beatKey = key; v.beatSeenAt = now }
+      const mine = { id: me.id, cls: myClass }
+      const reason: Reason | null = decide({ now, me: mine, present: v.present, state: v.net, vacantSince: v.vacantSince, beatSeenAt: v.beatSeenAt, idleSince: idleSince.current })
+      if (!reason) return
+      const present = v.present, beatSeen = v.net.beat
+      console.info(`[ysf] claiming the host seat (${reason}); device class ${myClass}, host was ${v.net.hostId ?? 'nobody'} (class ${v.net.hostClass ?? '?'})`)
+      v.beatSeenAt = now // one claim per stale beat; the synced state decides the rest
+      setNet((prev) => (mayClaim(reason, prev, mine, present, beatSeen)
+        ? { ...prev, hostId: me.id, hostNonce: nonce, hostClass: myClass, beat: 0, room: makeRoom(), since: Date.now() }
+        : prev))
+    }
+    const id = setInterval(tick, 500)
+    return () => clearInterval(id)
+  }, [me.id, myClass, nonce, setNet])
+
+  // The host's heartbeat: counted into the shared state while its engine
+  // steps (frame loop or background ticker).  A host whose browser sleeps
+  // stops counting, and a client takes the seat (election.ts, STALL_MS).
+  const isHostHere = net.hostId === me.id && (net.hostNonce === undefined || net.hostNonce === nonce)
+  useEffect(() => {
+    if (!isHostHere) return
+    let seen = -1
+    const id = setInterval(() => {
+      if (ysfxStats.steps === seen) return
+      seen = ysfxStats.steps
+      setNet((prev) => (prev.hostId === me.id && prev.hostNonce === nonce ? { ...prev, hostClass: myClass, beat: (prev.beat ?? 0) + 1 } : prev))
+    }, BEAT_MS)
+    return () => clearInterval(id)
+  }, [isHostHere, me.id, myClass, nonce, setNet])
 
   // Dev aid: ?ysfxnet=host:12345678 / client:12345678 forces the role and room
   // (two tabs of the dev environment do not share instance state).
@@ -112,21 +178,29 @@ export function NetSession({ children }: NetSessionProps) {
   } else if (net.hostId && net.room) {
     role = net.hostId === me.id && (net.hostNonce === undefined || net.hostNonce === nonce) ? 'host' : 'client'
   }
+  const field = (forced ? devField : net.field) ?? FIELD
+  const isForced = !!forced
+  const hostSetField = useCallback((f: string) => { if (isForced) setDevField(f); else setNet((prev) => ({ ...prev, field: f })) }, [isForced, setNet])
+  const setField = role === 'host' ? hostSetField : undefined
+  // The world below is the same element until one of these changes: the
+  // host's heartbeat lands in the instance state every few seconds and
+  // re-renders this component, and must not re-render the airfield with it
+  // (a hitch every five seconds, for everyone, in the middle of a flight).
+  const session = useMemo(() => (role && room ? children?.(role, pilotName, room, field, setField) : null), [children, role, pilotName, room, field, setField])
+  const args = useMemo(() => (role === 'host' ? ['-server', pilotName, field] : ['-client', pilotName, room ?? '']), [role, pilotName, field, room])
+  const onStall = useCallback(() => { console.warn(`[ysf] client not connected after ${CLIENT_STALL_S} s: restarting the engine`); setRetry((r) => r + 1) }, [])
+  const engine = useMemo(() => (role && room ? <YsflightEngine key={`${role}:${room}:${field}:${retry}`} args={args} signalUrl={SIGNAL_URL} roomCode={room} /> : null), [role, room, field, retry, args])
   if (!role || !room) return <StateBeacon role={null} room={null} field={null} /> // election pending: nothing to boot yet
 
-  const field = (forced ? devField : net.field) ?? FIELD
-  const setField = role === 'host' ? (f: string) => { if (forced) setDevField(f); else setNet((prev) => ({ ...prev, field: f })) } : undefined
   // The engine key carries the field: the server restarts on the new field
   // and every client restarts to reconnect to it.
-  const args = role === 'host' ? ['-server', pilotName, field] : ['-client', pilotName, room]
   return (
     <>
-      <YsflightEngine key={`${role}:${room}:${field}:${retry}`} args={args} signalUrl={SIGNAL_URL} roomCode={room} />
-      {role === 'client' && retry < CLIENT_MAX_RETRIES ? (
-        <ClientWatchdog onStall={() => { console.warn(`[ysf] client not connected after ${CLIENT_STALL_S} s: restarting the engine (retry ${retry + 1})`); setRetry((r) => r + 1) }} />
-      ) : null}
-      <StateBeacon role={role} room={room} field={field} />
-      {children?.(role, pilotName, room, field, setField)}
+      {engine}
+      {role === 'client' && retry < CLIENT_MAX_RETRIES ? <ClientWatchdog onStall={onStall} /> : null}
+      {role === 'client' ? <IdleWatch idleSince={idleSince} /> : null}
+      <StateBeacon role={role} room={room} field={field} election={{ cls: myClass, hostId: net.hostId, hostClass: net.hostClass, beat: net.beat }} />
+      {session}
     </>
   )
 }

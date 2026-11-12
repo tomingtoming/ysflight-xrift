@@ -32,6 +32,8 @@ import { readCarried, readLoadout, type Carried, type Loadout } from './loadout'
 export interface YsfxBeacon {
   t: number
   role: NetRole | null
+  /** Host election (net/election.ts): this browser's device class, and the host's id, class and heartbeat as synced. */
+  election?: { cls: number; hostId: string | null; hostClass?: number; beat?: number }
   room: string | null
   net: NetState | null
   flight: number[] | null
@@ -161,7 +163,7 @@ let apronInfo: { spawn: number[]; dir: number[]; elev: number; stp: string } | n
 /** Airfield publishes where it put the apron (world) for the current field. */
 export function publishApron(a: { spawn: number[]; dir: number[]; elev: number; stp: string } | null): void { apronInfo = a }
 
-export function StateBeacon({ role, room, field }: { role: NetRole | null; room: string | null; field: string | null }) {
+export function StateBeacon({ role, room, field, election }: { role: NetRole | null; room: string | null; field: string | null; election?: YsfxBeacon['election'] }) {
   const mod = useEngine()
   const gl = useThree((s) => s.gl)
   const users = useUsers() as unknown as { getLocalMovement?: () => { position?: unknown } | null; remoteUsers?: Array<{ id: string }>; getMovement?: (id: string) => { position?: unknown } | undefined }
@@ -190,6 +192,7 @@ export function StateBeacon({ role, room, field }: { role: NetRole | null; room:
     }
     const detail: YsfxBeacon = {
       others,
+      election,
       t: Date.now(), role, room, net: null, flight: null, aircraft: [], hud: hudLines, seat: localSeat, draws: ysfxStats.draws, bg: ysfxStats.bgTicks, ctl: null, lobby: lobbyCounts ? [...lobbyCounts, kioskClicks(), kioskJoinPending() ? 1 : 0] : null, kiosk: kioskHovers(),
       ground: { cam: v.current.y, feet, field: fieldElev, deck: !!groundUnder?.deck, patch: patchInfo },
       vr: { ...saccStatus, right: { ...saccStatus.right }, left: { ...saccStatus.left } },

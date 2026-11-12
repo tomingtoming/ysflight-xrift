@@ -169,6 +169,7 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
     // side window of the server's aircraft", and a client that booted while
     // the host flew became one -- its session state 2, no kiosk, 2026-11-10.)
     m._YsfxInterval()
+    ysfxStats.steps++
   }, -3) // before the seats (-2) and the host's camera (-1) / body (0): see net/seatLead.ts
 
   // ---- background ticks ---------------------------------------------------
@@ -190,6 +191,7 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
       // No frames while hidden: step on the wall clock (same time origin as the frame clock).
       mod._FsVrSetFrameTimeMs(performance.now())
       mod._YsfxInterval()
+      ysfxStats.steps++
     }, 16)
     return () => clearInterval(id)
   }, [mod])
@@ -228,7 +230,7 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
 
 let eyeCounter = 0
 
-export const ysfxStats = { draws: 0, bgTicks: 0, lastEye: -1, lastVp: [0, 0, 0, 0] as number[], keys: 0, lastKey: '', cam: [0, 0, 0] as number[], fwd: [0, 0, 0] as number[], tan: [0, 0, 0, 0] as number[], rt: null as null | { w: number; h: number; samples: number }, fb: false, buf: [0, 0] as number[] }
+export const ysfxStats = { draws: 0, bgTicks: 0, /** Engine steps so far, frame loop and background ticker together: the host's heartbeat counts on it. */ steps: 0, lastEye: -1, lastVp: [0, 0, 0, 0] as number[], keys: 0, lastKey: '', cam: [0, 0, 0] as number[], fwd: [0, 0, 0] as number[], tan: [0, 0, 0, 0] as number[], rt: null as null | { w: number; h: number; samples: number }, fb: false, buf: [0, 0] as number[] }
 if (import.meta.env.DEV) (window as unknown as { __ysfxStats?: unknown }).__ysfxStats = ysfxStats
 
 function drawEngine(m: YsflightModule, renderer: WebGLRenderer, camera: Camera, vp: Vector4) {
