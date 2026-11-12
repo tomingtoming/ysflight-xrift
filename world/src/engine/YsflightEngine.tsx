@@ -229,6 +229,8 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
 }
 
 let eyeCounter = 0
+/** MAX_VERTEX_ATTRIBS of the host context, read once. */
+let attribCount = 0
 
 export const ysfxStats = { draws: 0, bgTicks: 0, /** Engine steps so far, frame loop and background ticker together: the host's heartbeat counts on it. */ steps: 0, lastEye: -1, lastVp: [0, 0, 0, 0] as number[], keys: 0, lastKey: '', cam: [0, 0, 0] as number[], fwd: [0, 0, 0] as number[], tan: [0, 0, 0, 0] as number[], rt: null as null | { w: number; h: number; samples: number }, fb: false, buf: [0, 0] as number[] }
 if (import.meta.env.DEV) (window as unknown as { __ysfxStats?: unknown }).__ysfxStats = ysfxStats
@@ -292,6 +294,13 @@ function drawEngine(m: YsflightModule, renderer: WebGLRenderer, camera: Camera, 
     origBind.call(gl, target, framebuffer === null ? fb : framebuffer)
   }
   gl.bindVertexArray(null)
+  // The engine's 3D renderers (ysgl) enable a vertex-attribute array only when
+  // a draw gives it, and take every array of the bound VAO to be off when a
+  // draw pass starts, which is how the engine leaves the default VAO.  Other
+  // code drawing on this context with the default VAO could leave one on:
+  // switch them all off so that each pass starts from the engine's own state.
+  if (attribCount === 0) attribCount = gl.getParameter(gl.MAX_VERTEX_ATTRIBS) as number
+  for (let i = 0; i < attribCount; i++) gl.disableVertexAttribArray(i)
   gl.colorMask(true, true, true, true)
   gl.depthMask(true)
   gl.stencilMask(0xffffffff)
