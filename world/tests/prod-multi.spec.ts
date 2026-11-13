@@ -5,8 +5,8 @@
  * WebRTC, and the host's aircraft showing up in the client's aircraft list
  * after the host starts a flight at the kiosk.
  *
- * Needs local WebRTC P2P to work: Cloudflare WARP on this Mac breaks it
- * (keel), so run with WARP off.
+ * Needs local WebRTC P2P to work: Cloudflare WARP breaks it, so run with
+ * WARP off.
  */
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { resolve } from 'node:path'

@@ -5,9 +5,10 @@ original engine compiled to WebAssembly draws into the XRift host's three.js
 frame, so the airfield, the aircraft and the flight model are the real thing
 while avatars, voice and presence stay XRift's.
 
-Status: spike — the engine boots inside the XRift dev environment, draws the
-field from the XRift player's camera (per eye in WebXR), and takes keyboard
-input.  Seats, multiplayer and the upload are next.
+Status: playable on XRift -- desktop, phone and VR.  Walk to the kiosk, pick a
+field, an aircraft and its loadout, sit in the cockpit and fly; everyone in the
+same instance shares one sky (one visitor's browser runs the YSFLIGHT server,
+the rest join it over WebRTC).  Still an experiment: expect rough edges.
 
 ## Layout
 
@@ -59,8 +60,13 @@ to centre; the mouse is the look again).  The box at the lower left of the HUD
 glass shows the stick (dot) and rudder (bar), in place of YSFLIGHT's virtual
 joystick model, which the external-view host does not draw.  Keys reach the engine while seated (YSFLIGHT defaults: arrows or
 W/S for the stick, Q/A throttle, Z/X/C rudder, G gear, B brake, F/R flaps,
-Tab afterburner, Space gun); A/D are taken out of the host's seat roll axis
-so A only throttles down.  Space held stands up.
+Tab afterburner); A/D are taken out of the host's seat roll axis
+so A only throttles down.  Space is the host's: held, it stands up.  So the gun
+is Shift (either side) or the right mouse button.
+
+A gamepad (standard mapping: Xbox / DualSense / Switch Pro) flies too: left
+stick aileron / elevator, right stick X rudder, RT / LT throttle, A gun; the
+full map is at the top of `world/src/engine/gamepadStick.ts`.
 
 In VR the hands fly the aircraft SaccFlight-style (`world/src/vr/`):
 
@@ -83,12 +89,16 @@ THR−/THR＋ step the throttle 10 %, A/B, GEAR, BRK, FLP DN/UP tap the engine
 keys, FIRE holds the gun for half a second; each button shows its live state.
 The panel appears on coarse-pointer devices only.
 
-The host (the lowest user id present claims the room; the kiosk's status line
-says サーバ) alone picks the field in the kiosk's third column; every engine in the
-session restarts on it, and the apron -- spawn, kiosk, cockpit seat, walkable
-ground -- is laid out along the new field's first start position.  The ground is
-flat tiles at the apron elevation, so hilly fields are not walkable away from
-the apron yet.
+The host (the kiosk's status line says サーバ) alone picks the field in the
+kiosk's third column; every engine in the session restarts on it, and the apron
+-- spawn, kiosk, cockpit seat -- is laid out along the new field's first start
+position.  Desktops claim the host seat before phones, phones before headsets; a
+host that stops stepping is replaced, and a better device takes over once nobody
+is flying (`world/src/net/election.ts`).  The ground to walk on follows the
+terrain, hills and carrier decks included (`world/src/net/GroundPatch.tsx`).
+
+The kiosk also edits the loadout (weapons and fuel) of the chosen aircraft; the
+engine keeps the original rules for what fits where.
 
 Standing up leaves the aircraft where it is, throttle idle and brake on, with its
 exterior drawn; walk back and click the cockpit to board it again.  飛行開始 at
@@ -102,5 +112,10 @@ measured eye.
 
 No dependency on ysflight-web: shared ancestry is the engine forks only.
 
-License: engine and data follow the upstream forks; this repository's own
-code is MIT.
+## License
+
+This repository's own code is MIT (`LICENSE`).  `world/` started from the XRift
+world template (`world/LICENSE`, MIT, WebXR-JP).  YS FLIGHT SIMULATOR and its
+libraries are copyright (c) Soji Yamakawa (CaptainYS) and come in through the
+forks under their upstream licenses: captainys/YSFLIGHT (3-clause BSD, sources
+and runtime data) and captainys/public (2-clause BSD headers).

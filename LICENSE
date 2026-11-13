@@ -1,0 +1,37 @@
+MIT License
+
+Copyright (c) 2026 tomingtoming
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+----------------------------------------------------------------------
+
+YS FLIGHT SIMULATOR and its libraries are copyright (c) Soji Yamakawa
+(CaptainYS, http://www.ysflight.com).  They are not part of this repository;
+the submodules under upstream/ point at forks that carry them under their
+upstream licenses:
+
+  https://github.com/captainys/YSFLIGHT -- 3-clause BSD (the simulator
+  sources and the bundled runtime data)
+
+  https://github.com/captainys/public -- 2-clause BSD license headers carried
+  in each source file
+
+A built world bundle contains the compiled engine and its runtime data and is
+subject to those terms as well.
