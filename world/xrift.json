@@ -2,7 +2,7 @@
   "world": {
     "distDir": "./dist",
     "title": "YSFLIGHT (ysflight-xrift)",
-    "description": "YSFLIGHTの原典エンジン（WebAssembly）がXRiftの中で動く実験ワールド。台座に座ると機体に乗り込み、同じインスタンスの全員が同じ空を飛ぶ（対戦サーバはインスタンス内の先着ブラウザ）。",
+    "description": "YSFLIGHTの原典エンジン（WebAssembly）がXRiftの中で動く実験ワールド。台座に座ると機体に乗り込み、同じインスタンスの全員が同じ空を飛ぶ（対戦サーバはインスタンス内の誰か1人のブラウザ。PCが優先され、止まると別の人が引き継ぐ）。",
     "thumbnailPath": "thumbnail.png",
     "buildCommand": "npm run build",
     "ignore": [
