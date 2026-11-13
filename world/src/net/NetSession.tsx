@@ -19,6 +19,7 @@ import { BEAT_MS, decide, deviceClass, mayClaim, type Reason } from './election'
 import { ysfxStats } from '../engine/YsflightEngine'
 import { isCoarsePointer } from './TouchConsole'
 import { StateBeacon } from './StateBeacon'
+import { setSessionRole } from './roleStore'
 
 export interface NetSessionState {
   hostId: string | null
@@ -178,6 +179,8 @@ export function NetSession({ children }: NetSessionProps) {
   } else if (net.hostId && net.room) {
     role = net.hostId === me.id && (net.hostNonce === undefined || net.hostNonce === nonce) ? 'host' : 'client'
   }
+  const hostUser = net.hostId === me.id ? me : remoteUsers.find((u) => u.id === net.hostId)
+  setSessionRole(role, forced && role === 'host' ? me.displayName : (hostUser?.displayName ?? ''))
   const field = (forced ? devField : net.field) ?? FIELD
   const isForced = !!forced
   const hostSetField = useCallback((f: string) => { if (isForced) setDevField(f); else setNet((prev) => ({ ...prev, field: f })) }, [isForced, setNet])

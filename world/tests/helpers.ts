@@ -84,8 +84,8 @@ export interface Beacon {
   ground: { cam: number; feet: number[] | null; field: number | null; deck?: boolean; patch?: { cx: number; cz: number; n: number; spacing: number; min: number; max: number; deckSamples: number; builds: number } | null }
   /** The kiosk's loadout editor (engine side) and what the player's aircraft really carries. */
   loadout?: {
-    editor: { valid: boolean; rev: number; fuel: number; smoke: boolean; smokeGenerators: number; slots: Array<{ type: number; num: number; max: number; step: number }> }
-    carried: { valid: boolean; counts: number[]; fuelFraction: number; smokeOilKg: number }
+    editor: { valid: boolean; rev: number; fuel: number; smoke: boolean; smokeGenerators: number; smokeColor: number; slots: Array<{ type: number; num: number; max: number; step: number }> }
+    carried: { valid: boolean; counts: number[]; fuelFraction: number; smokeOilKg: number; smokeColor: number }
   } | null
   /** SaccFlight-style hand controls (src/vr/saccControls.ts). */
   vr: { active: boolean; right: { grabbed: boolean; sel: number; visible: boolean; pos: number[] }; left: { grabbed: boolean; sel: number; visible: boolean; pos: number[] }; keys: number; lastKey: string; ail: number; elv: number; rud: number; thr: number; ab: boolean }

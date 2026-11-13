@@ -97,8 +97,14 @@ host that stops stepping is replaced, and a better device takes over once nobody
 is flying (`world/src/net/election.ts`).  The ground to walk on follows the
 terrain, hills and carrier decks included (`world/src/net/GroundPatch.tsx`).
 
-The kiosk also edits the loadout (weapons and fuel) of the chosen aircraft; the
-engine keeps the original rules for what fits where.
+The kiosk also edits the loadout (weapons, fuel, smoke) of the chosen aircraft;
+the engine keeps the original rules for what fits where.  A row of swatches picks
+one smoke colour for every generator (the first, 機体, keeps the aircraft's own);
+the original SMOKECOL relay shows it to everyone.
+
+The host is told so: an amber line on the kiosk and on the loading panel, and a
+サーバ（ホスト） tag above the HUD glass while seated -- closing or backgrounding
+the host's tab restarts everyone's flight.  The others see the host's name.
 
 Standing up leaves the aircraft where it is, throttle idle and brake on, with its
 exterior drawn; walk back and click the cockpit to board it again.  飛行開始 at

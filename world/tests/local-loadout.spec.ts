@@ -11,8 +11,12 @@ const ROOM = '12345683'
 const AIM9 = 1, AGM65 = 2, BOMB = 3, AIM120 = 6
 type Editor = NonNullable<NonNullable<Awaited<ReturnType<typeof waitForBeacon>>['loadout']>>['editor']
 const slot = (e: Editor, type: number) => e.slots.find((s) => s.type === type)!
-const loadout = (page: import('@playwright/test').Page, air: string, changes: Array<[number, number]>, fuel?: number, smoke?: boolean) =>
-  page.evaluate(([a, c, f, s]) => (window as unknown as { __ysfxLoadout: (a: string, c: Array<[number, number]>, f?: number, s?: boolean) => Editor }).__ysfxLoadout(a as string, c as Array<[number, number]>, f as number | undefined, s as boolean | undefined), [air, changes, fuel, smoke] as const)
+const loadout = (page: import('@playwright/test').Page, air: string, changes: Array<[number, number]>, fuel?: number, smoke?: boolean, smokeColor?: number) =>
+  page.evaluate(([a, c, f, s, k]) => (window as unknown as { __ysfxLoadout: (a: string, c: Array<[number, number]>, f?: number, s?: boolean, k?: number) => Editor }).__ysfxLoadout(a as string, c as Array<[number, number]>, f as number | undefined, s as boolean | undefined, k as number | undefined), [air, changes, fuel, smoke, smokeColor] as const)
+/** loadout.ts smokeCode */
+const code = (rgb: number) => 1 + rgb
+/** Largest channel difference between two smoke codes (the engine keeps colours as floats: 0x20 comes back 0x21). */
+const colDiff = (a: number, b: number) => Math.max(...[16, 8, 0].map((s) => Math.abs((((a - 1) >> s) & 255) - (((b - 1) >> s) & 255))))
 
 test('loading column: the default, the limits, and a chosen loading reach the aircraft', async ({ page }) => {
   await watchBeacon(page)
@@ -61,6 +65,26 @@ test('loading column: the default, the limits, and a chosen loading reach the ai
   console.log(`[loadout] A-10 carried ${JSON.stringify(fly2.loadout!.editor.slots.map((s, k) => [s.type, c2.counts[k]]).filter(([, n]) => n > 0))} fuel ${(c2.fuelFraction * 100).toFixed(1)} % smoke oil ${c2.smokeOilKg.toFixed(1)} kg`)
   fly2.loadout!.editor.slots.forEach((s, k) => expect(c2.counts[k], `weapon type ${s.type}`).toBe(slot(other, s.type).num))
   await page.screenshot({ path: test.info().outputPath('loadout-kiosk.png') })
+
+  // Smoke colour: one colour asked for every generator is what the next aircraft's smoke has.
+  const RED = 0xff2020
+  const red = await loadout(page, 'F-16C_FIGHTINGFALCON', [], 100, true, code(RED))
+  expect(red.smokeColor).toBe(code(RED))
+  expect(red.smokeGenerators).toBeGreaterThan(0)
+  await page.evaluate(() => (window as unknown as { __ysfxLobbyStart: (a: string, s: string) => string }).__ysfxLobbyStart('F-16C_FIGHTINGFALCON', 'RW01_01'))
+  const second = fly2.net!.playerAirId
+  const fly3 = await waitForBeacon(page, (b) => !!b.net && b.net.state === NET_FLYING && b.net.playerAirId >= 0 && b.net.playerAirId !== second && !!b.loadout?.carried.valid && b.loadout.carried.smokeOilKg > 0, 40_000, 'flying the F-16 with smoke')
+  console.log(`[loadout] smoke colour asked ${(code(RED) - 1).toString(16)} carried ${(fly3.loadout!.carried.smokeColor - 1).toString(16)}`)
+  expect(colDiff(fly3.loadout!.carried.smokeColor, code(RED))).toBeLessThanOrEqual(2)
+  // And back to the aircraft's own colour (0): not red any more.
+  const own = await loadout(page, 'A-10A_THUNDERBOLT2', [], 100, true, 0)
+  expect(own.smokeColor).toBe(0)
+  await page.evaluate(() => (window as unknown as { __ysfxLobbyStart: (a: string, s: string) => string }).__ysfxLobbyStart('A-10A_THUNDERBOLT2', 'RW01_01'))
+  const third = fly3.net!.playerAirId
+  const fly4 = await waitForBeacon(page, (b) => !!b.net && b.net.state === NET_FLYING && b.net.playerAirId >= 0 && b.net.playerAirId !== third && !!b.loadout?.carried.valid && b.loadout.carried.smokeOilKg > 0, 40_000, 'flying the A-10 with smoke')
+  console.log(`[loadout] own smoke colour ${(fly4.loadout!.carried.smokeColor - 1).toString(16)}`)
+  expect(fly4.loadout!.carried.smokeColor).toBeGreaterThan(0)
+  expect(colDiff(fly4.loadout!.carried.smokeColor, code(RED))).toBeGreaterThan(2)
 })
 
 // The same column by the crosshair, as a desktop visitor uses it: pointer
@@ -110,5 +134,11 @@ test('loading column by crosshair: minus takes one AIM-9 off, fuel steps down, s
   await press('smoke')
   const end = await waitForBeacon(page, (b) => b.loadout!.editor.smoke !== before.smoke, 8_000, 'smoke toggled')
   console.log(`[loadout:click] AIM-9 ${n0} -> ${n0 - 1} -> ${n0}, fuel ${before.fuel} -> ${end.loadout!.editor.fuel}, smoke ${before.smoke} -> ${end.loadout!.editor.smoke}`)
+  // A colour swatch: picks the colour and loads smoke (a colour with no smoke would show nothing).
+  if (end.loadout!.editor.smoke) await press('smoke')
+  await waitForBeacon(page, (b) => !b.loadout!.editor.smoke, 8_000, 'smoke off before the swatch')
+  await press('smokecol:blue')
+  const blue = await waitForBeacon(page, (b) => b.loadout!.editor.smokeColor === 1 + 0x2060ff && b.loadout!.editor.smoke, 8_000, 'blue picked, smoke on')
+  console.log(`[loadout:click] swatch blue -> colour ${(blue.loadout!.editor.smokeColor - 1).toString(16)} smoke ${blue.loadout!.editor.smoke}`)
   await page.screenshot({ path: test.info().outputPath('loadout-clicked.png') })
 })

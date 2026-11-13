@@ -9,7 +9,7 @@
  *   window.__ysfxApronAt(x, y, z)  move the apron -- and with its spawn point the dev player, who follows it;
  *                              the host's teleport does nothing here (tests walk on slopes far from the airfield)
  *   window.__ysfxGroundRay(x, z)   height of the highest collider under a point (a physics ray straight down)
- *   window.__ysfxLoadout(air, changes, fuel, smoke)  what the kiosk's loading column does: start from
+ *   window.__ysfxLoadout(air, changes, fuel, smoke, smokeColor)  what the kiosk's loading column does: start from
  *                              the template's default, apply [FSWEAPONTYPE, n] pairs, set fuel % / smoke
  *   window.__ysfxBodyLag(frames, forceDelay)  the production host's late body (seatLead.ts)
  *   window.__ysfxHud           last HUD lines (set by FlightHud)
@@ -23,7 +23,7 @@ import { setKioskJoin, setPendingJoin } from './lobbyStore'
 import { NET_FLYING, readNetState, requestCommand, requestJoin, requestLeave, type NetState } from './netState'
 import { setDevBodyLag } from './seatLead'
 import { setDevPatchFocus } from './GroundPatch'
-import { loadoutChange, loadoutSetAircraft, loadoutSetFuel, loadoutSetSmoke, readLoadout } from './loadout'
+import { loadoutChange, loadoutSetAircraft, loadoutSetFuel, loadoutSetSmoke, loadoutSetSmokeColor, readLoadout } from './loadout'
 
 export function DevHooks({ onField, onApron }: { onField?: (field: string) => void; onApron?: (x: number, y: number, z: number) => void }) {
   const seat = useSeatContext() as unknown as Record<string, unknown>
@@ -63,12 +63,13 @@ export function DevHooks({ onField, onApron }: { onField?: (field: string) => vo
       const hit = world.castRay(new rapier.Ray({ x, y: top, z }, { x: 0, y: -1, z: 0 }), 2 * top, true)
       return hit ? top - hit.timeOfImpact : null
     }
-    w.__ysfxLoadout = (air: string, changes: Array<[number, number]> = [], fuel?: number, smoke?: boolean) => {
+    w.__ysfxLoadout = (air: string, changes: Array<[number, number]> = [], fuel?: number, smoke?: boolean, smokeColor?: number) => {
       if (!mod) return 'engine not ready'
       loadoutSetAircraft(mod, air)
       for (const [type, n] of changes) loadoutChange(mod, type, n)
       if (fuel !== undefined) loadoutSetFuel(mod, fuel)
       if (smoke !== undefined) loadoutSetSmoke(mod, smoke)
+      if (smokeColor !== undefined) loadoutSetSmokeColor(mod, smokeColor)
       return readLoadout(mod)
     }
     w.__ysfxNetCommand = (cmd: number) => { if (!mod) return 'engine not ready'; requestCommand(mod, cmd); return 'queued' }

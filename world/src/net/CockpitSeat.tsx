@@ -26,6 +26,7 @@ import { mouseStick, setMouseStickEnabled } from '../engine/mouseStick'
 import { StickMarker } from './StickMarker'
 import { FlightHud } from './FlightHud'
 import { Gunsight, HudGlass } from './HudGlass'
+import { HostBadge } from './HostBadge'
 import { kioskJoinPending, setKioskJoin } from './lobbyStore'
 import { DEFAULT_EYE, EyeCalibrator, type EyeOffset } from './seatEye'
 import { PoseHistory, SeatLead, camAnchor, clearSeatLag, devForceDelay, readFeet, readFeetAtRender } from './seatLead'
@@ -469,7 +470,7 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
   return (
     <>
       <group ref={group}>
-        {hudOn ? (<group position={seatPos}><HudGlass eye={eye} /><Gunsight eye={eye} /><FlightHud render={false} /><SaccHands /><StickMarker eye={eye} />{isCoarsePointer() ? <TouchConsole eye={eye} /> : null}</group>) : null}
+        {hudOn ? (<group position={seatPos}><HudGlass eye={eye} /><Gunsight eye={eye} /><HostBadge eye={eye} /><FlightHud render={false} /><SaccHands /><StickMarker eye={eye} />{isCoarsePointer() ? <TouchConsole eye={eye} /> : null}</group>) : null}
       </group>
       <group ref={seatGroup}>
         {seatOn ? <Seat id={COCKPIT_SEAT_ID} position={seatPos} exitOffset={{ forward: 0, right: -3, up: 0 }}

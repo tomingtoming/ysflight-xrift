@@ -4,8 +4,8 @@
  * A panel on the apron listing every aircraft the engine knows and the
  * field's start positions (both read from the engine once the lobby is
  * ready).  Pick one of each (and the IFF, the team), load the aircraft in the
- * fourth column (weapons, fuel, smoke: the loading tab of the original
- * chooser, whose rules stay in the engine -- loadout.ts) and press 飛行開始: the world asks the engine to
+ * fourth column (weapons, fuel, smoke and its colour: the loading tab of the
+ * original chooser, whose rules stay in the engine -- loadout.ts) and press 飛行開始: the world asks the engine to
  * join the session; when the aircraft appears the CockpitSeat boards the
  * player automatically.  Interaction goes through uikit's onClick, which the
  * host drives from the crosshair (PC), touch (phone) and the controller ray
@@ -22,7 +22,8 @@ import { countKioskClick, noteKioskPointer, pendingJoin, setKioskJoin, setPendin
 import { NET_FLYING, airBase, airCount, lobbyAirNames, lobbyFieldNames, lobbyStpNames, lobbyStpPositions, readNetState, requestJoin, requestLeave, type NetState } from './netState'
 import type { NetRole } from './NetSession'
 import { deliberate } from './clickGuard'
-import { WEAPON_LABEL, loadoutChange, loadoutRevision, loadoutSetAircraft, loadoutSetFuel, loadoutSetSmoke, readLoadout, type Loadout } from './loadout'
+import { SMOKE_COLORS, WEAPON_LABEL, loadoutChange, loadoutRevision, loadoutSetAircraft, loadoutSetFuel, loadoutSetSmoke, loadoutSetSmokeColor, readLoadout, smokeCode, type Loadout } from './loadout'
+import { HOST_DUTY, sessionHostName } from './roleStore'
 
 const PAGE = 10
 const PX = 0.001 // metres per pixel
@@ -66,6 +67,10 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
   /** The loading column's buttons, by name (lo+:<FSWEAPONTYPE>, lo-:<type>, fuel+, fuel-, smoke). */
   const loItemRefs = useRef(new Map<string, unknown>())
   const [loadout, setLoadout] = useState<Loadout | null>(null)
+  /** Smoke colour (loadout.ts smokeCode): the visitor's, kept across aircraft and written again into each new engine. */
+  const [smokeCol, setSmokeCol] = useState(0)
+  /** Who runs the server, from NetSession (roleStore): the host is told it is; the others, who it is. */
+  const [hostName, setHostName] = useState('')
   const loRev = useRef(-1)
   const itemWorld = useRef(new Vector3())
   const [airs, setAirs] = useState<string[]>([])
@@ -98,6 +103,11 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
     loRev.current = lo.rev
     setLoadout(lo.valid ? lo : null)
   }, [mod])
+  useEffect(() => {
+    if (!mod) return
+    loadoutSetSmokeColor(mod, smokeCol)
+    refreshLoadout()
+  }, [mod, smokeCol, refreshLoadout])
   // The loading starts over from the template's default whenever another aircraft is picked.
   useEffect(() => {
     if (!mod || airs.length === 0) return
@@ -155,6 +165,8 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
     if (loadoutRevision(mod) !== loRev.current) refreshLoadout()
     const ns = readNetState(mod, netRef.current)
     const seated = localSeatId() !== null
+    const hn = sessionHostName()
+    if (hn !== hostName) setHostName(hn)
     const who = role === 'host' ? 'サーバ' : role === 'client' ? 'クライアント' : '接続中'
     const st = !ns.ready ? '準備中' : ns.waiting ? '参加承認待ち' : ns.state === NET_FLYING ? (seated ? '飛行中' : '機体を置いて待機（飛行開始で乗り換え）') : '待機'
     setStatus(`${who}  部屋 ${room ?? '-'}  ${st}  接続 ${ns.connected}${rejectNote}`)
@@ -286,6 +298,28 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
             loButton('fuel+', '+', loadout.fuel < 100, () => loadoutSetFuel(mod!, Math.min(100, loadout.fuel + FUEL_STEP))))}
           {loadout.smokeGenerators > 0 ? loRow('smoke', 'SMOKE', loadout.smoke ? 'ON' : 'OFF',
             loButton('smoke', loadout.smoke ? 'x' : 'o', true, () => loadoutSetSmoke(mod!, !loadout.smoke)), null) : null}
+          {loadout.smokeGenerators > 0 ? (
+            <Container key="smokecol" height={50} paddingX={8} borderRadius={8} backgroundColor={0x222222} flexDirection="row" alignItems="center" gap={4}>
+              {SMOKE_COLORS.map((c) => {
+                const code = smokeCode(c.rgb)
+                const on = code === smokeCol
+                return (
+                  <Container key={c.key} width={c.rgb === null ? 64 : 40} height={40} borderRadius={6} justifyContent="center" alignItems="center"
+                    backgroundColor={c.rgb ?? 0x555555} borderWidth={on ? 4 : 1} borderColor={on ? 0x4da3ff : 0x666666} cursor="pointer"
+                    onClick={(e) => {
+                      if (!deliberate(e) || !mod) return
+                      setSmokeCol(code)
+                      loadoutSetSmokeColor(mod, code)
+                      loadoutSetSmoke(mod, true) // a colour with no smoke loaded would show nothing
+                      refreshLoadout()
+                    }}
+                    ref={(r: unknown) => { if (r) loItemRefs.current.set(`smokecol:${c.key}`, r); else loItemRefs.current.delete(`smokecol:${c.key}`) }}>
+                    {c.label ? <Text fontSize={20} color={0xffffff} fontFamily="ja">{c.label}</Text> : null}
+                  </Container>
+                )
+              })}
+            </Container>
+          ) : null}
         </>
       ) : <Text fontSize={26} color={0x888888}>-</Text>}
     </Container>
@@ -326,6 +360,14 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
       <Container sizeX={W * PX} sizeY={H * PX} pixelSize={PX} backgroundColor={0x101418} borderRadius={20} padding={28}
         flexDirection="column" gap={18} fontFamilies={fontFamilies}>
         <Text fontSize={40} color={0xffffff} fontFamily="ja">{`YSFLIGHT 対戦ロビー - ${field}`}</Text>
+        {role === 'host' ? (
+          <Container flexDirection="column" paddingX={20} paddingY={10} borderRadius={12} backgroundColor={0x8a4b00} gap={2}>
+            <Text fontSize={34} color={0xffffff} fontFamily="ja">あなたのブラウザがサーバ（ホスト）です</Text>
+            <Text fontSize={24} color={0xffe2b8} fontFamily="ja">{HOST_DUTY}</Text>
+          </Container>
+        ) : role === 'client' ? (
+          <Text fontSize={28} color={0xc0c8d0} fontFamily="ja">{`サーバ（ホスト）: ${hostName || '-'}`}</Text>
+        ) : null}
         <Text fontSize={28} color={0xa0c8ff} fontFamily="ja">{status}</Text>
         <Container flexDirection="row" gap={28} flexGrow={1}>
           {list('機体', airs, pageAir, airPages, selAir, setSelAir, setPageAir)}
