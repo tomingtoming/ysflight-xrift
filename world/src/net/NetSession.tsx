@@ -19,7 +19,7 @@ import { BEAT_MS, decide, deviceClass, mayClaim, type Reason } from './election'
 import { ysfxStats } from '../engine/YsflightEngine'
 import { isCoarsePointer } from './TouchConsole'
 import { StateBeacon } from './StateBeacon'
-import { setSessionRole } from './roleStore'
+import { setConnectStatus, setSessionRole } from './roleStore'
 
 export interface NetSessionState {
   hostId: string | null
@@ -51,6 +51,11 @@ export type NetRole = 'host' | 'client'
 
 const CLIENT_STALL_S = 30
 const CLIENT_MAX_RETRIES = 5
+/** Dev aid: ?ysfxstall=<s> shortens the watchdog so a test can reach the give-up. */
+const stallSeconds = (): number => {
+  const q = import.meta.env.DEV ? /[?&]ysfxstall=(\d+)/.exec(location.search) : null
+  return q ? Number(q[1]) : CLIENT_STALL_S
+}
 
 /**
  * A client whose WebRTC join never completes just sits there: the engine
@@ -59,7 +64,7 @@ const CLIENT_MAX_RETRIES = 5
  * the loading panel for good).  The cause is not known.  If the session is
  * not ready this long after the engine came up, boot the engine again.
  */
-function ClientWatchdog({ onStall }: { onStall: () => void }) {
+function ClientWatchdog({ onStall, stallS }: { onStall: () => void; stallS: number }) {
   const mod = useEngine()
   const waited = useRef(0)
   const done = useRef(false)
@@ -69,7 +74,7 @@ function ClientWatchdog({ onStall }: { onStall: () => void }) {
     if (!mod || done.current) return
     if (readNetState(mod, ns.current).ready) { done.current = true; return }
     waited.current += Math.min(dt, 0.1)
-    if (waited.current > CLIENT_STALL_S) { done.current = true; onStall() }
+    if (waited.current > stallS) { done.current = true; onStall() }
   })
   return null
 }
@@ -114,6 +119,10 @@ export function NetSession({ children }: NetSessionProps) {
   // host keeps the field locally (the production path is the instance state).
   const [devField, setDevField] = useState<string | undefined>(undefined)
   const [retry, setRetry] = useState(0)
+  /** The client gave up on this room (every restart stalled): the loading panel says so instead of waiting for good. */
+  const [failedRoom, setFailedRoom] = useState<string | null>(null)
+  /** retry at the moment this room was first seen: the attempts count per host, not per visit. */
+  const roomStart = useRef<{ room: string | null; retry: number }>({ room: null, retry: 0 })
 
   const me = localUser ?? { id: 'local', displayName: 'pilot' }
   const pilotName = useMemo(() => pilotNameOf(me), [me.id, me.displayName]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -191,7 +200,21 @@ export function NetSession({ children }: NetSessionProps) {
   // (a hitch every five seconds, for everyone, in the middle of a flight).
   const session = useMemo(() => (role && room ? children?.(role, pilotName, room, field, setField) : null), [children, role, pilotName, room, field, setField])
   const args = useMemo(() => (role === 'host' ? ['-server', pilotName, field] : ['-client', pilotName, room ?? '']), [role, pilotName, field, room])
-  const onStall = useCallback(() => { console.warn(`[ysf] client not connected after ${CLIENT_STALL_S} s: restarting the engine`); setRetry((r) => r + 1) }, [])
+  if (roomStart.current.room !== room) roomStart.current = { room, retry }
+  const tries = retry - roomStart.current.retry
+  const failed = role === 'client' && room !== null && failedRoom === room
+  setConnectStatus(role === 'client' ? { tries, max: CLIENT_MAX_RETRIES, failed } : null)
+  const stallS = useMemo(stallSeconds, [])
+  const onStall = useCallback(() => {
+    if (tries + 1 >= CLIENT_MAX_RETRIES) {
+      // Every restart stalled the same way: say so (LoadingPanel) rather than restart for good.
+      console.warn(`[ysf] client not connected after ${CLIENT_MAX_RETRIES} attempts: giving up on room ${room}`)
+      setFailedRoom(room)
+      return
+    }
+    console.warn(`[ysf] client not connected after ${stallS} s: restarting the engine`)
+    setRetry((r) => r + 1)
+  }, [tries, room, stallS])
   const engine = useMemo(() => (role && room ? <YsflightEngine key={`${role}:${room}:${field}:${retry}`} args={args} signalUrl={SIGNAL_URL} roomCode={room} /> : null), [role, room, field, retry, args])
   if (!role || !room) return <StateBeacon role={null} room={null} field={null} /> // election pending: nothing to boot yet
 
@@ -200,7 +223,7 @@ export function NetSession({ children }: NetSessionProps) {
   return (
     <>
       {engine}
-      {role === 'client' && retry < CLIENT_MAX_RETRIES ? <ClientWatchdog onStall={onStall} /> : null}
+      {role === 'client' && !failed ? <ClientWatchdog onStall={onStall} stallS={stallS} /> : null}
       {role === 'client' ? <IdleWatch idleSince={idleSince} /> : null}
       <StateBeacon role={role} room={room} field={field} election={{ cls: myClass, hostId: net.hostId, hostClass: net.hostClass, beat: net.beat }} />
       {session}

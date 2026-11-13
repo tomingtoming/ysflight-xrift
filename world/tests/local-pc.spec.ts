@@ -323,3 +323,25 @@ test('carrier deck: a pilot who leaves the seat on the deck stands on it', async
   expect(walked.ground.feet![1]).toBeGreaterThan(walked.ground.field! - 0.3)
   await page.screenshot({ path: test.info().outputPath('carrier-deck.png') })
 })
+
+// A client whose host never answers (no host in this room): the loading panel
+// counts the attempts, then says it gave up instead of sitting at ~90 % for good.
+test('loading panel: a client that cannot reach the host is told so', async ({ page }) => {
+  await watchBeacon(page)
+  await page.goto('http://localhost:5173/?ysfxnet=client:87654321&ysfxstall=4')
+  const retrying = await waitForBeacon(page, (b) => !!b.connect && b.connect.tries >= 1 && !b.connect.failed, 60_000, 'second attempt')
+  console.log(`[connect] retrying ${JSON.stringify(retrying.connect)} stage ${retrying.load?.stage}`)
+  await page.waitForTimeout(600)
+  await page.screenshot({ path: test.info().outputPath('connect-retrying.png') })
+  const gaveUp = await waitForBeacon(page, (b) => !!b.connect?.failed, 180_000, 'gave up')
+  console.log(`[connect] gave up ${JSON.stringify(gaveUp.connect)} stage ${gaveUp.load?.stage}`)
+  expect(gaveUp.connect!.tries).toBe(gaveUp.connect!.max - 1)
+  expect(gaveUp.load!.stage).not.toBe('ready')
+  await page.waitForTimeout(600)
+  await page.screenshot({ path: test.info().outputPath('connect-failed.png') })
+  // No more restarts once it gave up.
+  await page.waitForTimeout(8_000)
+  const later = await waitForBeacon(page, (b) => !!b.connect, 2_000, 'still reported')
+  expect(later.connect!.tries).toBe(gaveUp.connect!.tries)
+  expect(later.connect!.failed).toBe(true)
+})

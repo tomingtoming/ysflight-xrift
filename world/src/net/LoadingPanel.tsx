@@ -8,13 +8,16 @@
  * another field (the engine restarts).  It also says which role this
  * browser boots in: the role is decided right here (the panel comes back
  * whenever the host seat changes hands), and the host has to know it is one.
+ * A client that cannot reach the host is told so (toming, 2026-11-13: some
+ * visitors sat at ~90 % for good): which attempt this is, and when every
+ * attempt stalled, that it gave up and what to try.
  */
 import { Container, Text } from '@react-three/uikit'
 import { useFrame } from '@react-three/fiber'
 import { useDefaultFont } from '@xrift/world-components'
 import { useRef, useState } from 'react'
 import { useLoad } from '../engine/loadStore'
-import { HOST_DUTY, sessionHostName, sessionRole } from './roleStore'
+import { HOST_DUTY, connectStatus, sessionHostName, sessionRole } from './roleStore'
 
 const PX = 0.001
 const W = 1500
@@ -41,18 +44,30 @@ export function LoadingPanel({ position, yaw, field }: { position: [number, numb
     : load.stage === 'boot' ? 'エンジンを起動中' : `フィールド ${field} を準備中`
   const role = sessionRole()
   const host = sessionHostName()
+  const conn = role === 'client' ? connectStatus() : null
   return (
     <group position={position} rotation={[0, yaw, 0]}>
       <Container sizeX={W * PX} sizeY={H * PX} pixelSize={PX} backgroundColor={0x101418} borderRadius={24} padding={80}
         flexDirection="column" gap={44} justifyContent="center" fontFamilies={fontFamilies}>
         <Text fontSize={96} color={0xffffff} fontFamily="ja">YSFLIGHT</Text>
-        <Text fontSize={52} color={0xa0c8ff} fontFamily="ja">{`${line}${'.'.repeat(dots)}`}</Text>
+        {conn?.failed ? (
+          <Container flexDirection="column" paddingX={24} paddingY={14} borderRadius={14} backgroundColor={0x7a1f1f} gap={6}>
+            <Text fontSize={44} color={0xffffff} fontFamily="ja">{`ホスト${host ? `（${host} さん）` : ''}につながりませんでした`}</Text>
+            <Text fontSize={28} color={0xffd0d0} fontFamily="ja">回線の組み合わせによっては、ホストと直接つながらないことがあります</Text>
+            <Text fontSize={28} color={0xffd0d0} fontFamily="ja">別の回線（Wi-Fi など）で入り直すか、ホストが替わってから入り直してください</Text>
+          </Container>
+        ) : (
+          <Text fontSize={52} color={0xa0c8ff} fontFamily="ja">{`${line}${'.'.repeat(dots)}`}</Text>
+        )}
+        {conn && !conn.failed && conn.tries > 0 ? (
+          <Text fontSize={34} color={0xffc070} fontFamily="ja">{`ホストにつながらないので、やり直しています（${conn.tries + 1}/${conn.max} 回目）`}</Text>
+        ) : null}
         {role === 'host' ? (
           <Container flexDirection="column" paddingX={24} paddingY={12} borderRadius={14} backgroundColor={0x8a4b00} gap={4}>
             <Text fontSize={42} color={0xffffff} fontFamily="ja">あなたのブラウザがサーバ（ホスト）になりました</Text>
             <Text fontSize={28} color={0xffe2b8} fontFamily="ja">{HOST_DUTY}</Text>
           </Container>
-        ) : role === 'client' ? (
+        ) : role === 'client' && !conn?.failed ? (
           <Text fontSize={36} color={0xc0c8d0} fontFamily="ja">{`サーバ（ホスト）${host ? ` ${host} さん` : ''}に接続します`}</Text>
         ) : null}
         <Container width={BAR_W} height={28} borderRadius={14} backgroundColor={0x2a3340}>

@@ -28,6 +28,7 @@ import { fireStatus } from '../engine/fireKey'
 import { voiceStatus } from './VoiceForAll'
 import { isCoarsePointer } from './TouchConsole'
 import { readCarried, readLoadout, type Carried, type Loadout } from './loadout'
+import { connectStatus, type ConnectStatus } from './roleStore'
 
 export interface YsfxBeacon {
   t: number
@@ -69,6 +70,8 @@ export interface YsfxBeacon {
   ctl: number[] | null
   ctlOwner?: string | null
   load?: { stage: string; progress: number | null }
+  /** A client's attempts to reach the host (roleStore); null on the host. */
+  connect?: ConnectStatus | null
   /** The engine's main-window view mode (FSCOCKPITVIEW = 0). */
   view?: number
   engine?: string | null
@@ -199,6 +202,7 @@ export function StateBeacon({ role, room, field, election }: { role: NetRole | n
       eye: eyeCalibration(),
       lag: seatLag(),
       load: loadState(),
+      connect: connectStatus(),
       console: consoleButtons,
       mouse: { ...mouseStick },
       pad: { ...padStatus },

@@ -14,5 +14,15 @@ export function sessionRole(): NetRole | null { return role }
 /** The host's XRift display name ('' while unknown). */
 export function sessionHostName(): string { return hostName }
 
+/**
+ * A client's attempts to reach the host (NetSession's watchdog): `tries`
+ * engine restarts so far, `failed` once the last one gave up too.  null on
+ * the host and before the first boot.
+ */
+export interface ConnectStatus { tries: number; max: number; failed: boolean }
+let connect: ConnectStatus | null = null
+export function setConnectStatus(c: ConnectStatus | null): void { connect = c }
+export function connectStatus(): ConnectStatus | null { return connect }
+
 /** What being the host means for everyone else, in one line. */
 export const HOST_DUTY = 'このタブを閉じる・裏に回す・ヘッドセットを外すと、全員の飛行がやり直しになります'

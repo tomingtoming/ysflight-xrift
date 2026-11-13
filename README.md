@@ -104,7 +104,11 @@ the original SMOKECOL relay shows it to everyone.
 
 The host is told so: an amber line on the kiosk and on the loading panel, and a
 サーバ（ホスト） tag above the HUD glass while seated -- closing or backgrounding
-the host's tab restarts everyone's flight.  The others see the host's name.
+the host's tab restarts everyone's flight.  The others see the host's name.  A
+visitor who cannot reach the host is told so on the loading panel: the attempt
+(the engine restarts after 30 s without a connection) and, after five, that it
+gave up and what to try.  The connection is direct WebRTC over public STUN only,
+so some network pairs (mobile carriers' NAT and the like) cannot connect.
 
 Standing up leaves the aircraft where it is, throttle idle and brake on, with its
 exterior drawn; walk back and click the cockpit to board it again.  飛行開始 at
