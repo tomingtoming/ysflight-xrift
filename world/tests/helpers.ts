@@ -142,6 +142,13 @@ export async function waitForBeacon(page: Page, pred: (b: Beacon) => boolean, ti
 
 export const NET_FLYING = 1
 
+/** Hold a key the way a keyboard does: a press, then auto-repeat presses every 33 ms (Playwright's keyboard.down alone sends one). */
+export async function holdKey(page: Page, key: string, ms: number): Promise<void> {
+  const t0 = Date.now()
+  do { await page.keyboard.down(key); await page.waitForTimeout(33) } while (Date.now() - t0 < ms)
+  await page.keyboard.up(key)
+}
+
 // ---------------------------------------------------------------------------
 // Aiming on the real host (pc / sp).  The host's crosshair interacts within
 // 3.5 m (its `tc` constant), so walk in first.  Angles from the beacon's XR /

@@ -60,18 +60,19 @@ async function kioskStart(page: Page) {
 test('desktop: kiosk 飛行開始, W/S and mouse stick, Q/A throttle, camera at speed, Space leaves', async ({ page }) => {
   const { cur } = await kioskStart(page)
 
-  await page.keyboard.down('w')
-  const stick = await waitForBeacon(page, (x) => !!x.ctl && x.ctl[0] === 1 && x.ctl[2] < -0.5, 10_000, 'stick forward')
+  // The keyboard steps the stick and it stays (engine/keyStick.ts): W held (auto-repeat) = full forward, kept after release.
+  await holdKey(page, 'w', 1500)
+  await page.waitForTimeout(500)
+  const stick = await waitForBeacon(page, (x) => !!x.ctl && x.ctl[0] === 1 && x.ctl[2] < -0.5, 10_000, 'stick forward, kept')
   expect(stick.ctl![2]).toBeLessThan(-0.5)
-  await page.keyboard.up('w')
-  await waitForBeacon(page, (x) => !!x.ctl && Math.abs(x.ctl[2]) < 0.05, 10_000, 'stick released')
 
   // Mouse stick (pointer locked): hold the left button, travel since the grab
-  // is the deflection (250 px = full); release and it springs back.
+  // is the deflection (500 px = full, travel^1.5); release and it springs back
+  // (the keyboard's stick starts again from neutral too).
   await page.mouse.down()
-  await page.mouse.move(cur.mx + 150, cur.my, { steps: 10 })
+  await page.mouse.move(cur.mx + 450, cur.my, { steps: 10 })
   const ms = await waitForBeacon(page, (x) => x.mouse.grabbed && !!x.ctl && x.ctl[0] === 1 && x.ctl[1] > 0.5, 5_000, 'mouse stick: roll right')
-  await page.mouse.move(cur.mx + 150, cur.my - 150, { steps: 10 })
+  await page.mouse.move(cur.mx + 450, cur.my - 450, { steps: 10 })
   const mf = await waitForBeacon(page, (x) => !!x.ctl && x.ctl[2] < -0.5, 5_000, 'mouse stick: forward = nose down')
   console.log(`[pc mouse stick] right -> ail ${ms.ctl![1].toFixed(2)}; forward -> elv ${mf.ctl![2].toFixed(2)}`)
   await page.screenshot({ path: test.info().outputPath('pc-mouse-stick.png') })
