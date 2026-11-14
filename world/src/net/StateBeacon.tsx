@@ -29,6 +29,7 @@ import { voiceStatus } from './VoiceForAll'
 import { isCoarsePointer } from './TouchConsole'
 import { readCarried, readLoadout, type Carried, type Loadout } from './loadout'
 import { connectStatus, type ConnectStatus } from './roleStore'
+import { gaugeFlight, gaugeLines, gaugeNow, type GaugeFlight, type GaugeNow } from './gauges'
 
 export interface YsfxBeacon {
   t: number
@@ -62,6 +63,8 @@ export interface YsfxBeacon {
   preview: { air: string; pos: number[]; radius: number } | null
   /** The session panel: its buttons (world centres) and the engine console lines it shows. */
   panel: { buttons: Array<{ name: string; pos: number[] }>; log: string[] } | null
+  /** The session panel's gauges (net/gauges.ts): now, and the last or current flight. */
+  gauge: { now: GaugeNow | null; flight: GaugeFlight | null; lines: [string, string, string] }
   /** World centres of the kiosk's field-column items on the current page. */
   kioskItems: Array<{ name: string; pos: number[] }>
   /** Where the last engine draw went: viewport, eye, host render target, framebuffer bound, drawing buffer. */
@@ -217,6 +220,7 @@ export function StateBeacon({ role, room, field, election }: { role: NetRole | n
       kioskBtn,
       kioskItems,
       panel: panelInfo,
+      gauge: { now: gaugeNow(), flight: gaugeFlight(), lines: gaugeLines() },
       preview: previewInfo,
       gfx: { vp: ysfxStats.lastVp, eye: ysfxStats.lastEye, rt: ysfxStats.rt, fb: ysfxStats.fb, buf: ysfxStats.buf },
     }

@@ -17,6 +17,7 @@ import { useMemo, useRef, useState } from 'react'
 import { Group, Vector3 } from 'three'
 import { useEngine } from '../engine/engineStore'
 import { deliberate } from './clickGuard'
+import { gaugeFrame, gaugeLines } from './gauges'
 import { publishPanel } from './StateBeacon'
 import { NET_CMD, airBase, airCount, airIdentifier, airName, consoleTail, readNetState, requestCommand, type NetState } from './netState'
 import type { NetRole } from './NetSession'
@@ -57,8 +58,10 @@ export function SessionPanel({ position, yaw = 0, role }: { position: [number, n
   const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
   const acc = useRef(0)
   const host = role === 'host'
+  const [gauge, setGauge] = useState<[string, string, string]>(['', '', ''])
 
   useFrame((_s, dt) => {
+    if (mod && gaugeFrame(mod, dt)) setGauge(gaugeLines())
     acc.current += dt
     if (acc.current < 0.5) return
     acc.current = 0
@@ -138,6 +141,9 @@ export function SessionPanel({ position, yaw = 0, role }: { position: [number, n
         <Text fontSize={28} color={0xffffff} fontFamily="ja">ログ</Text>
         <Container flexDirection="column" flexGrow={1} backgroundColor={0x06080a} borderRadius={10} padding={12} gap={2} overflow="hidden">
           {log.map((x, i) => <Text key={`${seq.current}-${i}`} fontSize={22} color={0xb8e0b8} fontFamily="ja">{x}</Text>)}
+        </Container>
+        <Container flexDirection="column" flexShrink={0} gap={2}>
+          {gauge.map((x, i) => <Text key={i} fontSize={24} color={0x8090a0} fontFamily="ja">{x}</Text>)}
         </Container>
       </Container>
       <mesh position={[0, -(H * PX) / 2 - 0.55, 0]}>

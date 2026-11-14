@@ -13,6 +13,7 @@
  * Coordinates: the engine's GL-convention world IS the three.js world
  * (engine x,y,z_LH  <->  three x,y,-z).
  */
+import { gaugeCountDraw } from '../net/gauges'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useXRift } from '@xrift/world-components'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -310,6 +311,7 @@ function drawEngine(m: YsflightModule, renderer: WebGLRenderer, camera: Camera, 
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4)
   try {
     m._YsfxDraw()
+    gaugeCountDraw()
   } finally {
     gl.bindFramebuffer = origBind
     // Give three.js its state back and restore the target/viewport the host
