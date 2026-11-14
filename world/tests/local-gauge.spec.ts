@@ -31,6 +31,10 @@ test('gauges: now row, flight row while seated, flight row kept after leaving', 
   expect(g1.gauge!.now!.cpuMs!).toBeGreaterThan(g1.gauge!.now!.simMs)
   expect(g1.gauge!.now!.cpuMs!).toBeLessThan(200)
   expect(g1.gauge!.now!.eye).toEqual([1280, 720])
+  // The context read-back: a depth buffer, and only the point-sprite program carries a z-offset here.
+  const gp = await waitForBeacon(page, (b) => !!b.gauge?.probe, 20_000, 'gl probe')
+  console.log(`[gauge] ${gp.gauge!.probe}`)
+  expect(gp.gauge!.probe).toMatch(/深度 \d+bit x\d+  Zずらし [01]\/\d+/)
   await page.screenshot({ path: test.info().outputPath('local-gauge-panel.png') })
 
   // Fly: the flight row fills while seated.

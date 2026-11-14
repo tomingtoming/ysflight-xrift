@@ -17,7 +17,7 @@ import { useMemo, useRef, useState } from 'react'
 import { Group, Vector3 } from 'three'
 import { useEngine } from '../engine/engineStore'
 import { deliberate } from './clickGuard'
-import { gaugeFrame, gaugeLines } from './gauges'
+import { gaugeFrame, gaugeLines, gaugeProbe } from './gauges'
 import { publishPanel } from './StateBeacon'
 import { NET_CMD, airBase, airCount, airIdentifier, airName, consoleTail, readNetState, requestCommand, type NetState } from './netState'
 import type { NetRole } from './NetSession'
@@ -59,9 +59,10 @@ export function SessionPanel({ position, yaw = 0, role }: { position: [number, n
   const acc = useRef(0)
   const host = role === 'host'
   const [gauge, setGauge] = useState<[string, string, string]>(['', '', ''])
+  const [probe, setProbe] = useState('')
 
   useFrame((_s, dt) => {
-    if (mod && gaugeFrame(mod, dt)) setGauge(gaugeLines())
+    if (mod && gaugeFrame(mod, dt)) { setGauge(gaugeLines()); const p = gaugeProbe(); if (p !== probe) setProbe(p) }
     acc.current += dt
     if (acc.current < 0.5) return
     acc.current = 0
@@ -144,6 +145,7 @@ export function SessionPanel({ position, yaw = 0, role }: { position: [number, n
         </Container>
         <Container flexDirection="column" flexShrink={0} gap={2}>
           {gauge.map((x, i) => <Text key={i} fontSize={24} color={0x8090a0} fontFamily="ja">{x}</Text>)}
+          <Text fontSize={24} color={0x8090a0} fontFamily="ja">{probe}</Text>
         </Container>
       </Container>
       <mesh position={[0, -(H * PX) / 2 - 0.55, 0]}>

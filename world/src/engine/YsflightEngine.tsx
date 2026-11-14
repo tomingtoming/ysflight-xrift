@@ -14,7 +14,8 @@
  * (engine x,y,z_LH  <->  three x,y,-z).
  */
 import { withStateShadow } from './glShadow'
-import { gaugeCountDraw, gaugeFrameStart } from '../net/gauges'
+import { gaugeCountDraw, gaugeFrameStart, setGaugeProbe } from '../net/gauges'
+import { probeGl } from './glProbe'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useXRift } from '@xrift/world-components'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -319,6 +320,8 @@ function drawEngine(m: YsflightModule, renderer: WebGLRenderer, camera: Camera, 
     if (stateShadow) withStateShadow(gl, () => { m._YsfxDraw() })
     else m._YsfxDraw()
     gaugeCountDraw(Math.round(vp.z), Math.round(vp.w))
+    // Every few seconds, while the engine's target is still bound: what the context says (glProbe.ts).
+    if (ysfxStats.draws % 400 === 100) setGaugeProbe(probeGl(m, gl))
   } finally {
     gl.bindFramebuffer = origBind
     // Give three.js its state back and restore the target/viewport the host
