@@ -80,7 +80,7 @@ test('kiosk start -> join -> keyboard stick, mouse stick, throttle and HUD', asy
   await page.mouse.move(640, 360)
   await page.mouse.down()
   await page.mouse.move(640 + 125, 360, { steps: 10 })
-  const mq = await waitForBeacon(page, (b) => b.mouse.grabbed && !!b.ctl && b.ctl[0] === 1 && b.ctl[1] > 0.05, 5_000, 'mouse stick: a little right')
+  const mq = await waitForBeacon(page, (b) => b.mouse.grabbed && !!b.ctl && b.ctl[0] === 1 && b.ctl[1] > 0.12, 5_000, 'mouse stick: a little right') // the full 125 px, not a sample taken mid-move
   console.log(`[mouse stick] right 125 px -> ail ${mq.ctl![1].toFixed(3)}`)
   expect(mq.ctl![1]).toBeGreaterThan(0.09)
   expect(mq.ctl![1]).toBeLessThan(0.16)
