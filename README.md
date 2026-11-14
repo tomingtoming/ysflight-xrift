@@ -55,11 +55,12 @@ differs from `ENGINE_ABI` (world/src/engine/loadEngine.ts).
 ## Controls
 
 Desktop: hold the left mouse button and the mouse is the stick (its travel
-since the grab is the deflection, 250 px = full; release and it springs back
+since the grab is the deflection, 500 px = full with a gentle middle
+(travel^1.5); release and it springs back
 to centre; the mouse is the look again).  The box at the lower left of the HUD
 glass shows the stick (dot) and rudder (bar), in place of YSFLIGHT's virtual
 joystick model, which the external-view host does not draw.  Keys reach the engine while seated (YSFLIGHT defaults: arrows or
-W/S for the stick, Q/A throttle, Z/X/C rudder, G gear, B brake, F/R flaps,
+W/S for the stick -- as in YSFLIGHT each press moves it one step and it stays: roll 0.1, pitch 0.04, a roll press against the current side centres it -- Q/A throttle, Z/X/C rudder, G gear, B brake, F/R flaps,
 Tab afterburner); A/D are taken out of the host's seat roll axis
 so A only throttles down.  Space is the host's: held, it stands up.  So the gun
 is Shift (either side) or the right mouse button.

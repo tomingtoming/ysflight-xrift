@@ -21,7 +21,8 @@ import { onBeforeEngineDraw, setPiloting, useEngine } from '../engine/engineStor
 import { releaseFire, setFire } from '../engine/fireKey'
 import { frameClock } from '../engine/frameClock'
 import { padStatus, releaseGamepad, updateGamepad } from '../engine/gamepadStick'
-import { isKeyDown } from '../engine/keyBridge'
+import { isKeyDown, subscribeKeys } from '../engine/keyBridge'
+import { keyStick, keyStickPress, resetKeyStick } from '../engine/keyStick'
 import { mouseStick, setMouseStickEnabled } from '../engine/mouseStick'
 import { StickMarker } from './StickMarker'
 import { FlightHud } from './FlightHud'
@@ -97,6 +98,7 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
   const [hudOn, setHudOn] = useState(false)
   /** The aircraft exists and nobody local sits: the seat can be clicked to board again. */
   const [reboardable, setReboardable] = useState(false)
+  /** The phone joystick's stick (the host's two-axis seat input); a keyboard's is engine/keyStick.ts. */
   const stickRef = useRef({ ail: 0, elv: 0 })
   // Key taps release on the next frame (the engine sees key-state edges per step).
   const tapRelease = useRef<string[]>([])
@@ -127,7 +129,14 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
   const releaseStick = useCallback(() => {
     stickRef.current.ail = 0
     stickRef.current.elv = 0
+    resetKeyStick()
   }, [])
+
+  // The keyboard steps the stick (engine/keyStick.ts) while this seat's pilot flies by keyboard.
+  useEffect(() => subscribeKeys((e) => {
+    if (!seatedRef.current || !flyingRef.current || isCoarsePointer() || saccStatus.active || mouseStick.grabbed || padStatus.active) return
+    keyStickPress(e.code)
+  }, () => {}, () => {}), [])
 
   const endLocalFlight = useCallback(() => {
     if (!flyingRef.current) return
@@ -160,6 +169,8 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
 
   const onControlInput = useCallback((input: SeatControlInput, delta: number) => {
     if (!mod || !flyingRef.current || saccStatus.active || mouseStick.grabbed || padStatus.active) return // VR hands / the mouse stick / a gamepad fly the aircraft
+    // A keyboard: the stick is where the key presses left it (the host's held/not-held input is not used).
+    if (!isCoarsePointer()) { controlBus.stick('host', keyStick.ail, keyStick.elv); return }
     const st = stickRef.current
     const step = STICK_RATE * Math.max(delta, 0)
     const toward = (v: number, target: number) => v + Math.max(-step, Math.min(step, target - v))

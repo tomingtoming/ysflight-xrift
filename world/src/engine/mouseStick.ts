@@ -5,7 +5,8 @@
  * centre; under XRift the pointer is locked and the mouse is the player's
  * look, so there is no cursor and no centre.  Instead the stick follows the
  * VR grab grammar: press the left button to take the stick, the mouse's
- * movement since the grab is the deflection (250 px = full), release and
+ * movement since the grab is the deflection (500 px = full, the middle of
+ * the throw made gentle: deflection = travel^1.5), release and
  * the stick springs back to centre and the mouse is the look again.  While
  * grabbed the movement is kept from the host (stopPropagation in the window
  * capture phase runs before the host's document listener), so the view
@@ -17,7 +18,10 @@
  * Installed at module load like keyBridge; the seats enable it while the
  * local player flies on a fine-pointer device outside XR.
  */
-const FULL_PX = 250
+const FULL_PX = 500
+/** deflection = (travel / FULL_PX)^EXPO, as for the gamepad's thumbstick: half the throw gives 35 % of the stick. */
+const EXPO = 1.5
+const shape = (px: number) => { const r = Math.min(1, Math.abs(px) / FULL_PX); return Math.sign(px) * Math.pow(r, EXPO) }
 
 export const mouseStick = {
   enabled: false,
@@ -64,10 +68,11 @@ export function installMouseStick(): void {
   }, opts)
   window.addEventListener('mousemove', (e) => {
     if (!mouseStick.grabbed) return
-    accX += e.movementX
-    accY += e.movementY
-    mouseStick.ail = Math.max(-1, Math.min(1, accX / FULL_PX))
-    mouseStick.elv = Math.max(-1, Math.min(1, accY / FULL_PX))
+    // The travel stops at full throw, so coming back starts at once.
+    accX = Math.max(-FULL_PX, Math.min(FULL_PX, accX + e.movementX))
+    accY = Math.max(-FULL_PX, Math.min(FULL_PX, accY + e.movementY))
+    mouseStick.ail = shape(accX)
+    mouseStick.elv = shape(accY)
     e.stopPropagation() // the host must not turn this into a look
   }, opts)
   window.addEventListener('mouseup', (e) => {

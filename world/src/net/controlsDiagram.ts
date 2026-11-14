@@ -104,11 +104,14 @@ function drawPc(c: Ctx, x0: number, y0: number): void {
   text(c, 'Space 長押し： 降りる', kx + 2.25 * P + (5 * P - 10) / 2, ky + 4 * P + 42, 32, TEXT, 'center', true)
 
   // arrow keys
-  const ax = x0 + 1020, ay = ky + 3 * P - 40
+  const ax = x0 + 1020, ay = ky + 3 * P - 84
   keycap(c, ax + P, ay, K, K, '↑', ['機首', '下げ'])
   keycap(c, ax, ay + P, K, K, '←', ['左', 'ロール'])
   keycap(c, ax + P, ay + P, K, K, '↓', ['機首', '上げ'])
   keycap(c, ax + 2 * P, ay + P, K, K, '→', ['右', 'ロール'])
+  // The keys step the stick and it stays (engine/keyStick.ts).
+  text(c, '押すたびに少し傾き、そのまま保つ', ax + 1.5 * P - 5, ay + 2 * P + 26, 24, DIM, 'center')
+  text(c, 'ロールは逆を押すと中立', ax + 1.5 * P - 5, ay + 2 * P + 56, 24, DIM, 'center')
 
   // mouse
   const mx = x0 + 1200, my = y0 + 96

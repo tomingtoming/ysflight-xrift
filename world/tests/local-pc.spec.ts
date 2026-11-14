@@ -3,7 +3,7 @@
  * Forces the host role (?ysfxnet=host:ROOM) so no election is needed.
  */
 import { expect, test } from '@playwright/test'
-import { NET_FLYING, lastBeacon, waitForBeacon, watchBeacon } from './helpers'
+import { NET_FLYING, holdKey, lastBeacon, waitForBeacon, watchBeacon } from './helpers'
 
 const ROOM = '12345678'
 
@@ -35,17 +35,28 @@ test('kiosk start -> join -> keyboard stick, mouse stick, throttle and HUD', asy
   const hud = await waitForBeacon(page, (b) => !!b.hud && /SPD/.test(b.hud[0]), 15_000, 'hud')
   expect(hud.hud![0]).toMatch(/ALT/)
 
-  // The host's seated 2-axis input reaches the engine stick: W pushes the nose down (elevator < 0).
-  await page.keyboard.down('w')
-  await page.waitForTimeout(1200)
+  // The keyboard steps the engine stick and it stays (engine/keyStick.ts): W held (auto-repeat) pushes the nose down (elevator < 0).
+  await holdKey(page, 'w', 1200)
+  await page.waitForTimeout(300) // released: the stick stays where the presses left it
   const elv = await page.evaluate(() => {
     const m = (window as unknown as { __ysfx: { HEAPF32: Float32Array; _FsVrControlDataPointer: () => number } }).__ysfx
     const c = m._FsVrControlDataPointer() >> 2
     return [m.HEAPF32[c], m.HEAPF32[c + 1], m.HEAPF32[c + 2]]
   })
-  await page.keyboard.up('w')
   expect(elv[0]).toBe(1)
   expect(elv[2]).toBeLessThan(-0.5)
+  // Roll: 0.1 per press, kept; a press against the current side centres it first.
+  const ail = async () => (await page.evaluate(() => {
+    const m = (window as unknown as { __ysfx: { HEAPF32: Float32Array; _FsVrControlDataPointer: () => number } }).__ysfx
+    return m.HEAPF32[(m._FsVrControlDataPointer() >> 2) + 1]
+  }))
+  for (let i = 0; i < 3; i++) { await page.keyboard.press('ArrowRight'); await page.waitForTimeout(60) }
+  await page.waitForTimeout(400)
+  expect(await ail()).toBeCloseTo(0.3, 2)
+  await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(300)
+  expect(await ail()).toBeCloseTo(0, 2)
+  await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(300)
+  expect(await ail()).toBeCloseTo(-0.1, 2)
 
   // YSFLIGHT's own rudder keys keep working while the seat input holds the
   // stick: the block flags no yaw axis (fsvr.h [11]), so Z/C reach the engine
@@ -64,15 +75,21 @@ test('kiosk start -> join -> keyboard stick, mouse stick, throttle and HUD', asy
   expect(rc).toBeLessThan(rz - 0.2)
 
   // Mouse stick: hold the left button, the mouse's travel since the grab is
-  // the deflection (250 px = full); release and it springs back.
+  // the deflection (500 px = full, travel^1.5); release and it springs back.
+  // A quarter of the throw is gentle: 125 px gives 0.25^1.5 = 0.125.
   await page.mouse.move(640, 360)
   await page.mouse.down()
-  await page.mouse.move(640 + 150, 360, { steps: 10 })
+  await page.mouse.move(640 + 125, 360, { steps: 10 })
+  const mq = await waitForBeacon(page, (b) => b.mouse.grabbed && !!b.ctl && b.ctl[0] === 1 && b.ctl[1] > 0.05, 5_000, 'mouse stick: a little right')
+  console.log(`[mouse stick] right 125 px -> ail ${mq.ctl![1].toFixed(3)}`)
+  expect(mq.ctl![1]).toBeGreaterThan(0.09)
+  expect(mq.ctl![1]).toBeLessThan(0.16)
+  await page.mouse.move(640 + 450, 360, { steps: 10 })
   const ms = await waitForBeacon(page, (b) => b.mouse.grabbed && !!b.ctl && b.ctl[0] === 1 && b.ctl[1] > 0.5, 5_000, 'mouse stick: roll right')
-  console.log(`[mouse stick] right 150 px -> ail ${ms.ctl![1].toFixed(2)} elv ${ms.ctl![2].toFixed(2)}`)
-  await page.mouse.move(640 + 150, 360 - 150, { steps: 10 })
+  console.log(`[mouse stick] right 450 px -> ail ${ms.ctl![1].toFixed(2)} elv ${ms.ctl![2].toFixed(2)}`)
+  await page.mouse.move(640 + 450, 360 - 450, { steps: 10 })
   const mf = await waitForBeacon(page, (b) => !!b.ctl && b.ctl[2] < -0.5, 5_000, 'mouse stick: pushed forward = nose down')
-  console.log(`[mouse stick] forward 150 px -> ail ${mf.ctl![1].toFixed(2)} elv ${mf.ctl![2].toFixed(2)}`)
+  console.log(`[mouse stick] forward 450 px -> ail ${mf.ctl![1].toFixed(2)} elv ${mf.ctl![2].toFixed(2)}`)
   await page.screenshot({ path: test.info().outputPath('local-mouse-stick.png') })
   await page.mouse.up()
   await waitForBeacon(page, (b) => !b.mouse.grabbed && !!b.ctl && Math.abs(b.ctl[1]) < 0.05 && Math.abs(b.ctl[2]) < 0.05, 5_000, 'mouse stick released')
@@ -273,8 +290,8 @@ test('view keys cannot leave the cockpit view while piloting; a crash puts the p
   for (let i = 0; i < 20; i++) await page.keyboard.press('q')
   await page.keyboard.press('Tab')
   await waitForBeacon(page, (b) => !!b.flight && b.flight[1] > 90, 60_000, 'take-off speed')
-  await page.keyboard.down('s'); await page.waitForTimeout(2500); await page.keyboard.up('s')
-  await page.keyboard.down('w')
+  await holdKey(page, 's', 1200); await page.waitForTimeout(1300) // nose up, and the stick stays back
+  await holdKey(page, 'w', 3000) // through neutral to full forward, and it stays there
   const dead = await waitForBeacon(page, (b) => b.aircraft.length === 0 || b.aircraft.every((a) => !a.player || !a.alive), 60_000, 'crashed')
   await page.keyboard.up('w')
   console.log(`[crash] aircraft ${JSON.stringify(dead.aircraft.map((a) => ({ alive: a.alive, y: +a.pos[1].toFixed(0) })))} seat ${dead.seat}`)
