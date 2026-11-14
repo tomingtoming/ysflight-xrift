@@ -14,7 +14,7 @@
  * (engine x,y,z_LH  <->  three x,y,-z).
  */
 import { withStateShadow } from './glShadow'
-import { gaugeCountDraw } from '../net/gauges'
+import { gaugeCountDraw, gaugeFrameStart } from '../net/gauges'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useXRift } from '@xrift/world-components'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -149,6 +149,7 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
   const bootFrames = useRef(0)
   useFrame((_s, _dt, xrFrame) => {
     // First callback of the frame: everything after reads this timestamp.
+    gaugeFrameStart()
     tickFrameClock(!!gl.xr?.isPresenting, xrFrame)
     const m = modRef.current
     if (!m) return
@@ -317,7 +318,7 @@ function drawEngine(m: YsflightModule, renderer: WebGLRenderer, camera: Camera, 
     // ?ysfxshadow=0 draws without the state shadow, for an A/B on the gauges.
     if (stateShadow) withStateShadow(gl, () => { m._YsfxDraw() })
     else m._YsfxDraw()
-    gaugeCountDraw()
+    gaugeCountDraw(Math.round(vp.z), Math.round(vp.w))
   } finally {
     gl.bindFramebuffer = origBind
     // Give three.js its state back and restore the target/viewport the host

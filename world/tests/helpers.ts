@@ -80,7 +80,7 @@ export interface Beacon {
   /** GL state queries during engine draws: answered by the shadow / passed to the context. */
   glq?: { answered: number; passed: number }
   /** The session panel's gauges (src/net/gauges.ts). */
-  gauge?: { now: { fps: number; simMs: number; drawMs: number; drawsPerFrame: number; heapMB: number; usedMB: number | null } | null; flight: { seconds: number; fpsAvg: number; fpsMin: number; simMs: number; drawMs: number; heapStartMB: number; heapEndMB: number; usedStartMB: number | null; usedEndMB: number | null; live: boolean } | null; lines: [string, string, string] }
+  gauge?: { now: { fps: number; simMs: number; drawMs: number; drawsPerFrame: number; cpuMs: number | null; eye: [number, number]; heapMB: number; usedMB: number | null } | null; flight: { seconds: number; fpsAvg: number; fpsMin: number; simMs: number; drawMs: number; cpuMs: number | null; heapStartMB: number; heapEndMB: number; usedStartMB: number | null; usedEndMB: number | null; live: boolean } | null; lines: [string, string, string] }
   gfx: { vp: number[]; eye: number; rt: null | { w: number; h: number; samples: number }; fb: boolean; buf: number[] }
   ctl: number[] | null
   lobby: number[] | null
