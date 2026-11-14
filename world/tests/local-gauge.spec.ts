@@ -25,6 +25,12 @@ test('gauges: now row, flight row while seated, flight row kept after leaving', 
   expect(n.usedMB!).toBeGreaterThan(1)
   expect(n.usedMB!).toBeLessThan(n.heapMB)
   expect(g0.gauge!.flight).toBeNull()
+  // Main-thread time of a frame: at least the engine's own share of it, and inside a frame at this rate.
+  const g1 = await waitForBeacon(page, (b) => !!b.gauge?.now && b.gauge.now.cpuMs !== null && b.gauge.now.eye[0] > 0, 10_000, 'cpu time and viewport')
+  console.log(`[gauge] ${g1.gauge!.lines[0]} | ${g1.gauge!.lines[2].trim()}`)
+  expect(g1.gauge!.now!.cpuMs!).toBeGreaterThan(g1.gauge!.now!.simMs)
+  expect(g1.gauge!.now!.cpuMs!).toBeLessThan(200)
+  expect(g1.gauge!.now!.eye).toEqual([1280, 720])
   await page.screenshot({ path: test.info().outputPath('local-gauge-panel.png') })
 
   // Fly: the flight row fills while seated.
