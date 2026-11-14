@@ -13,6 +13,7 @@
  * Coordinates: the engine's GL-convention world IS the three.js world
  * (engine x,y,z_LH  <->  three x,y,-z).
  */
+import { withStateShadow } from './glShadow'
 import { gaugeCountDraw } from '../net/gauges'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useXRift } from '@xrift/world-components'
@@ -230,6 +231,9 @@ export function YsflightEngine({ args, keyboard = true, signalUrl, roomCode, onR
 }
 
 let eyeCounter = 0
+/** GL state shadow (glShadow.ts): on unless the page asks otherwise (?ysfxshadow=0, or the dev hook). */
+let stateShadow = !/[?&]ysfxshadow=0/.test(location.search)
+export function setStateShadow(on: boolean): void { stateShadow = on }
 /** MAX_VERTEX_ATTRIBS of the host context, read once. */
 let attribCount = 0
 
@@ -310,7 +314,9 @@ function drawEngine(m: YsflightModule, renderer: WebGLRenderer, camera: Camera, 
   gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4)
   try {
-    m._YsfxDraw()
+    // ?ysfxshadow=0 draws without the state shadow, for an A/B on the gauges.
+    if (stateShadow) withStateShadow(gl, () => { m._YsfxDraw() })
+    else m._YsfxDraw()
     gaugeCountDraw()
   } finally {
     gl.bindFramebuffer = origBind
