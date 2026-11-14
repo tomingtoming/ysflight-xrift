@@ -4,6 +4,7 @@
  *   window.__ysfxSit(seatId)   sit the local user on a seat
  *   window.__ysfxStand()       stand up (if the host exposes it)
  *   window.__ysfxLobbyStart(air, stp)  what the kiosk's 飛行開始 does
+ *   window.__ysfxShadow(on)    GL state shadow on/off (engine/glShadow.ts), for an A/B in one page
  *   window.__ysfxSetField(field)  what the host's field pick does
  *   window.__ysfxPatchFocus(x, z)  lay the ground patch around a point instead of the player (null args: back to the player)
  *   window.__ysfxApronAt(x, y, z)  move the apron -- and with its spawn point the dev player, who follows it;
@@ -19,6 +20,7 @@ import { useSeatContext } from '@xrift/world-components'
 import { useRapier } from '@react-three/rapier'
 import { useEffect } from 'react'
 import { useEngine } from '../engine/engineStore'
+import { setStateShadow } from '../engine/YsflightEngine'
 import { setKioskJoin, setPendingJoin } from './lobbyStore'
 import { NET_FLYING, readNetState, requestCommand, requestJoin, requestLeave, type NetState } from './netState'
 import { setDevBodyLag } from './seatLead'
@@ -72,10 +74,12 @@ export function DevHooks({ onField, onApron }: { onField?: (field: string) => vo
       if (smokeColor !== undefined) loadoutSetSmokeColor(mod, smokeColor)
       return readLoadout(mod)
     }
+    w.__ysfxShadow = (on: boolean) => { setStateShadow(on); return on ? 'on' : 'off' }
     w.__ysfxNetCommand = (cmd: number) => { if (!mod) return 'engine not ready'; requestCommand(mod, cmd); return 'queued' }
     return () => {
       delete w.__ysfxLobbyStart
       delete w.__ysfxNetCommand
+      delete w.__ysfxShadow
       delete w.__ysfxLoadout
       delete w.__ysfxPatchFocus
       delete w.__ysfxGroundRay

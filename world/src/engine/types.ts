@@ -22,6 +22,9 @@ export interface YsflightModule {
   _FsVrAircraftStateDataPointer: () => number
   _FsVrConsumeSimDrawnFrames: () => number
   _FsVrPerfDataPointer: () => number
+  /** Heap gauge (fsvr.h): [heap MB, malloc'd MB, free MB, samples]; absent in engine binaries built before it. */
+  _FsVrMemDataPointer?: () => number
+  _FsVrMemSample?: () => void
   // fsvr.h network-lobby automation (ysflight-xrift fork)
   _FsVrNetRequestLeave: () => void
   _FsVrNetStateDataPointer: () => number
