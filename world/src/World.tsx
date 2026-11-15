@@ -5,6 +5,7 @@ import { Vector3 } from 'three'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useEngine } from './engine/engineStore'
 import { setLoad } from './engine/loadStore'
+import { devAnchorShift, originPending, setOrigin } from './engine/origin'
 import { ControlsSign } from './net/ControlsSign'
 import { LoadingPanel } from './net/LoadingPanel'
 import { VoiceForAll } from './net/VoiceForAll'
@@ -26,16 +27,22 @@ export interface WorldProps {
 
 /**
  * Where the apron furniture stands for the current field: the floor point of
- * the spawn, the runway direction (three.js xz, unit) and the field elevation.
- * Derived from the field's first start position once the engine has loaded
- * it; until then the Atsugi RW01 layout of the first worlds.
+ * the spawn, the runway direction (three.js xz, unit) and the elevation.
+ *
+ * The place is the same on every field: Atsugi's (ANCHOR below).  What the
+ * field decides is the engine's origin -- its world is moved so that the
+ * point beside its first start position lands there (engine/origin.ts) --
+ * and the direction of the runway.  Hawaii's runway is 45 km from the
+ * field's origin, and visitors standing that far out in the host's world did
+ * not see each other's avatars (toming, 2026-11-15).  Nobody is carried from
+ * field to field any more either: the field arrives under their feet.
  */
 interface Apron { spawn: [number, number, number]; dir: [number, number]; elev: number; stp: string }
 // The engine's own answer for Atsugi RW01_01 (prod beacon, 2026-11-09), so the
 // apron -- spawn point, kiosk, parked aircraft -- does not jump when the engine
 // loads the default field a few seconds after the visitor arrived.  A phone
 // visitor had aimed at the kiosk's first spot and tapped into thin air once it
-// moved 4.9 m.  Other fields still move it, by hundreds of metres, with a teleport.
+// moved 4.9 m.
 const SPAWN_AHEAD_M = 23 // abeam a point ahead of the first start position's nose
 // Beside the runway, not on it (toming, 2026-11-11: standing on the runway is
 // uneasy).  To the right of the take-off direction, clear of the widest
@@ -51,6 +58,9 @@ const SIDE_CANDIDATES = [0, SPAWN_SIDE_M, -SPAWN_SIDE_M]
 const SIDE_LEVEL_M = 1.5
 const ATSUGI_DIR: [number, number] = [0.17365, -0.98481]
 const ATSUGI: Apron = { spawn: apronSpot([-116.99994, 0, 663.19962], ATSUGI_DIR), dir: ATSUGI_DIR, elev: 0, stp: 'RW01_01' }
+/** Every field's apron, in the host's world (dev: moved by ?ysfxanchor, see origin.ts). */
+const ANCHOR: [number, number, number] = (() => { const d = devAnchorShift(); return [ATSUGI.spawn[0] + d[0], ATSUGI.spawn[1] + d[1], ATSUGI.spawn[2] + d[2]] })()
+const START: Apron = { ...ATSUGI, spawn: ANCHOR, elev: ANCHOR[1] }
 
 const GROUND_TILE = 400 // m; small enough that the host's character controller stands on top (see below)
 const GROUND_TILES_PER_SIDE = 5 // 2 km around the apron, until the heightfield takes over (net/GroundPatch.tsx)
@@ -67,7 +77,7 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
   const users = useUsers()
   const camera = useThree((st) => st.camera)
   const feetTmp = useRef(new Vector3())
-  const [apron, setApron] = useState<Apron>(ATSUGI)
+  const [apron, setApron] = useState<Apron>(START)
   /** The heightfield under the local player has its first answer: the flat stand-in floor can go. */
   const [terrain, setTerrain] = useState(false)
   const done = useRef(false)
@@ -79,8 +89,8 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
   const cand = useRef(0)
   const elevs = useRef<number[]>([])
 
-  // A new engine (new field) measures again.
-  useEffect(() => { done.current = false; samples.current = []; pending.current = null; stp.current = null; cand.current = 0; elevs.current = []; setProbeBusy(false) }, [mod])
+  // A new engine (new field) measures again.  All of the measuring below is in the engine's own frame.
+  useEffect(() => { originPending(); done.current = false; samples.current = []; pending.current = null; stp.current = null; cand.current = 0; elevs.current = []; setProbeBusy(false) }, [mod])
 
   useFrame(() => {
     if (!mod || done.current) return
@@ -119,20 +129,26 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
     const elev = elevs.current[pick]
     const sp = apronSpot(stp.current!.p, stp.current!.d, SIDE_CANDIDATES[pick])
     console.info(`[ysfx] apron: start position y ${stp.current!.p[1].toFixed(1)} m, runway ${elevs.current[0].toFixed(1)} m, right ${elevs.current[1].toFixed(1)} m, left ${elevs.current[2].toFixed(1)} m -> ${['on the runway', 'right', 'left'][pick]}`)
-    const next: Apron = { ...pending.current, spawn: [sp[0], elev, sp[2]], elev }
+    // The field moves so that this point is the apron's (engine = host + origin).
+    const o: [number, number, number] = [sp[0] - ANCHOR[0], elev - ANCHOR[1], sp[2] - ANCHOR[2]]
+    setOrigin(o[0], o[1], o[2])
+    const next: Apron = { ...pending.current, spawn: ANCHOR, elev: ANCHOR[1] }
     done.current = true
     setProbeBusy(false)
     setLoad('ready')
     setApron(next)
-    publishApron(next)
-    // Whoever is not near this apron is brought to it: visitors who stood on
-    // the previous field's apron, and visitors the host dropped at the world
-    // origin before this world had mounted its spawn point (a guest stayed
-    // there, 650 m from the kiosk, once the ground patch gave the origin a
-    // floor; before that they fell and were respawned -- production, 2026-11-10).
+    publishApron({ ...next, origin: o })
+    // Whoever is not near the apron is brought to it: visitors the host
+    // dropped at the world origin before this world had mounted its spawn
+    // point (a guest stayed there, 650 m from the kiosk, once the ground patch
+    // gave the origin a floor; before that they fell and were respawned --
+    // production, 2026-11-10).  A change of field leaves the apron where it
+    // was but turns it with the runway: whoever stands is put back on the
+    // spawn facing the kiosk, as when they arrived.
     const here = readFeet(users, feetTmp.current) ?? camera.position
-    const movedFar = localSeatId() === null && Math.hypot(next.spawn[0] - here.x, next.spawn[2] - here.z) > 150
-    if (movedFar) teleport({ position: [next.spawn[0], elev + 0.5, next.spawn[2]], yaw: (Math.atan2(-next.dir[0], -next.dir[1]) * 180) / Math.PI })
+    const movedFar = Math.hypot(next.spawn[0] - here.x, next.spawn[2] - here.z) > 150
+    const turned = next.dir[0] * apron.dir[0] + next.dir[1] * apron.dir[1] < 0.9998 // more than a degree
+    if (localSeatId() === null && (movedFar || turned)) teleport({ position: [next.spawn[0], next.elev + 0.5, next.spawn[2]], yaw: (Math.atan2(-next.dir[0], -next.dir[1]) * 180) / Math.PI })
   })
 
   const [sx, , sz] = apron.spawn
@@ -180,10 +196,9 @@ function Airfield({ role, room, field, setField }: { role: NetRole; room: string
         </RigidBody>
       )}
 
-      {/* Keyed by the place: the platform's SpawnPoint reports its position
-          once, when mounted, so a new field needs a new one -- otherwise a
-          respawn on any other field lands on Atsugi's apron. */}
-      <group key={`spawn:${sx},${e},${sz}`} position={[sx, e + 0.5, sz]}>
+      {/* Keyed by the place and the facing: the platform's SpawnPoint reports
+          them once, when mounted, and the facing follows the field's runway. */}
+      <group key={`spawn:${sx},${e},${sz},${spawnYawDeg.toFixed(1)}`} position={[sx, e + 0.5, sz]}>
         <SpawnPoint yaw={spawnYawDeg} />
       </group>
     </>

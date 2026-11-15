@@ -10,10 +10,11 @@
  *    whatever the host has bound, and afterwards hand the GL state back to
  *    three.js (resetState + re-bind the render target and viewport).
  *
- * Coordinates: the engine's GL-convention world IS the three.js world
- * (engine x,y,z_LH  <->  three x,y,-z).
+ * Coordinates: the engine's GL-convention world (engine x,y,z_LH  <->
+ * x,y,-z) is the three.js world moved by the field's origin (origin.ts).
  */
 import { withStateShadow } from './glShadow'
+import { origin } from './origin'
 import { gaugeCountDraw, gaugeFrameStart, setGaugeProbe } from '../net/gauges'
 import { probeGl } from './glProbe'
 import { useFrame, useThree } from '@react-three/fiber'
@@ -275,6 +276,8 @@ function drawEngine(m: YsflightModule, renderer: WebGLRenderer, camera: Camera, 
   f[base + 3] = tanD
   const V = camera.matrixWorldInverse.elements
   for (let i = 0; i < 16; i++) f[base + 4 + i] = V[i]
+  // The engine's world is the host's plus the origin (origin.ts): an engine point p is the host's p - origin, so world -> eye for it is V * T(-origin).
+  for (let i = 0; i < 3; i++) f[base + 4 + 12 + i] = V[12 + i] - (V[i] * origin.x + V[4 + i] * origin.y + V[8 + i] * origin.z)
   f[base + 20] = vp.x
   f[base + 21] = vp.y
   f[base + 22] = vp.z

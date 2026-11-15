@@ -218,10 +218,10 @@ test('desktop: the host picks another field at the kiosk; everyone restarts ther
   console.log(`[field:prod aim] ${pick} dist ${aim.dist.toFixed(2)} dyaw ${aim.dyaw.toFixed(1)} dpitch ${aim.dpitch.toFixed(1)}`)
   await page.screenshot({ path: test.info().outputPath('pc-field-pick.png') })
   await page.mouse.click(cur.mx, cur.my)
-  const b1 = await waitForBeacon(page, (x) => x.field.current === pick && !!x.net && x.net.ready && !!x.apron && Math.hypot(x.apron.spawn[0] - b0.apron!.spawn[0], x.apron.spawn[2] - b0.apron!.spawn[2]) > 150, 150_000, 'engine restarted on the new field, apron placed')
+  const b1 = await waitForBeacon(page, (x) => x.field.current === pick && !!x.net && x.net.ready && !!x.apron?.origin && Math.hypot(x.apron.origin[0] - b0.apron!.origin![0], x.apron.origin[2] - b0.apron!.origin![2]) > 150, 150_000, 'engine restarted on the new field, the field moved under the apron')
   console.log(`[field:prod] -> ${b1.field.current}: start positions ${b1.lobby?.[1]}, apron ${JSON.stringify(b1.apron)}`)
-  // The visitor is brought to the new apron and stands on its ground.
-  const here = await waitForBeacon(page, (x) => !!x.ground.feet && Math.hypot(x.ground.feet[0] - b1.apron!.spawn[0], x.ground.feet[2] - b1.apron!.spawn[2]) < 5 && Math.abs(x.ground.feet[1] - b1.apron!.elev) < 0.3, 20_000, 'teleported onto the new apron')
+  // The apron is where it was (the field moved, engine/origin.ts); the visitor stands on its ground, turned to the kiosk.
+  const here = await waitForBeacon(page, (x) => !!x.ground.feet && Math.hypot(x.ground.feet[0] - b1.apron!.spawn[0], x.ground.feet[2] - b1.apron!.spawn[2]) < 5 && Math.abs(x.ground.feet[1] - b1.apron!.elev) < 0.3, 20_000, 'standing on the apron of the new field')
   console.log(`[field:prod] feet ${JSON.stringify(here.ground.feet?.map((n) => +n.toFixed(2)))} engine ground ${here.ground.field}`)
   await page.screenshot({ path: test.info().outputPath('pc-field-apron.png') })
   // And the kiosk works there: 飛行開始 at the new field's first start position.

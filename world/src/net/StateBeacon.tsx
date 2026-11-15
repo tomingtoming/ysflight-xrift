@@ -7,6 +7,7 @@
  * environment) subscribe to it; nothing is written to globals, so the
  * channel passes XRift's code-security rules and ships in production.
  */
+import { origin } from '../engine/origin'
 import { useFrame, useThree } from '@react-three/fiber'
 import { kioskClicks, kioskHovers, kioskJoinPending } from './lobbyStore'
 import { useRef } from 'react'
@@ -57,7 +58,8 @@ export interface YsfxBeacon {
   cockpit: number[] | null
   /** The session's field (host's choice), the engine's field list, and the apron placed for it. */
   field: { current: string | null; names: string[] }
-  apron: { spawn: number[]; dir: number[]; elev: number; stp: string } | null
+  /** Host-world place of the apron (the same on every field) and `origin`: where the engine's world sits (engine = host + origin, engine/origin.ts). */
+  apron: { spawn: number[]; dir: number[]; elev: number; stp: string; origin?: number[] } | null
   /** World position of the kiosk's 飛行開始 button centre. */
   kioskBtn: number[] | null
   /** The showroom preview behind the kiosk. */
@@ -168,9 +170,9 @@ export function publishKioskItems(items: Array<{ name: string; pos: number[] }>)
 let fieldNames: string[] = []
 /** LobbyKiosk publishes the engine's field list once read. */
 export function publishFields(names: string[]): void { fieldNames = names }
-let apronInfo: { spawn: number[]; dir: number[]; elev: number; stp: string } | null = null
+let apronInfo: { spawn: number[]; dir: number[]; elev: number; stp: string; origin?: number[] } | null = null
 /** Airfield publishes where it put the apron (world) for the current field. */
-export function publishApron(a: { spawn: number[]; dir: number[]; elev: number; stp: string } | null): void { apronInfo = a }
+export function publishApron(a: { spawn: number[]; dir: number[]; elev: number; stp: string; origin?: number[] } | null): void { apronInfo = a }
 
 export function StateBeacon({ role, room, field, election }: { role: NetRole | null; room: string | null; field: string | null; election?: YsfxBeacon['election'] }) {
   const mod = useEngine()
@@ -242,7 +244,7 @@ export function StateBeacon({ role, room, field, election }: { role: NetRole | n
       const n = airCount(mod)
       for (let i = 0; i < n; i++) {
         const b = airBase(mod, i)
-        detail.aircraft.push({ id: f[b], alive: f[b + 1] !== 0, player: f[b + 2] !== 0, name: airName(mod, i), pos: [f[b + 15], f[b + 16], f[b + 17]] })
+        detail.aircraft.push({ id: f[b], alive: f[b + 1] !== 0, player: f[b + 2] !== 0, name: airName(mod, i), pos: [f[b + 15] - origin.x, f[b + 16] - origin.y, f[b + 17] - origin.z] })
       }
     }
     window.dispatchEvent(new CustomEvent('ysfx-state', { detail }))

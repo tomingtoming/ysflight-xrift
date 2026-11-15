@@ -11,6 +11,7 @@
  * host drives from the crosshair (PC), touch (phone) and the controller ray
  * (VR) alike.
  */
+import { origin } from '../engine/origin'
 import { Container, Text } from '@react-three/uikit'
 import { useFrame } from '@react-three/fiber'
 import { useDefaultFont } from '@xrift/world-components'
@@ -182,7 +183,7 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
       setKioskJoin(false)
       setRejectNote('  ※サーバが参加を拒否（スタート地点が使用中か）。別の地点を選んでください')
     }
-    // Occupancy: any alive aircraft within 30 m of a start position.
+    // Occupancy: any alive aircraft within 30 m of a start position (both in the engine's frame).
     if (stps.length > 0 && stpPos.current.length === stps.length) {
       const n = airCount(mod)
       const f = mod.HEAPF32
@@ -234,9 +235,9 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
       position[0] + previewSide[0] * side + previewAhead[0] * r * 0.5,
       position[1] - KIOSK_CENTRE_M + PREVIEW_CLEAR_M + r * 0.15,
       position[2] + previewSide[1] * side + previewAhead[1] * r * 0.5)
-    f[p + 1] = previewPos.current.x
-    f[p + 2] = previewPos.current.y
-    f[p + 3] = previewPos.current.z
+    f[p + 1] = previewPos.current.x + origin.x
+    f[p + 2] = previewPos.current.y + origin.y
+    f[p + 3] = previewPos.current.z + origin.z
     f[p + 4] = previewTurn.current
     publishPreview({ air: selAir, pos: previewPos.current.toArray(), radius })
   })
@@ -397,6 +398,12 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
         </Container>
       </Container>
       {/* stand: from the ground up to the panel's bottom edge */}
+      {/* a dark back, so the board is not see-through from behind (as the controls sign; toming, 2026-11-15).
+          It faces away from the visitor and takes no pointer: the panel in front is what is clicked. */}
+      <mesh rotation={[0, Math.PI, 0]} position={[0, 0, -0.005]} raycast={() => null}>
+        <planeGeometry args={[W * PX, H * PX]} />
+        <meshBasicMaterial color="#101418" toneMapped={false} />
+      </mesh>
       <mesh position={[0, -(H * PX) / 2 - 0.55, 0]}>
         <boxGeometry args={[0.25, 1.1, 0.25]} />
         <meshStandardMaterial color="#555" />

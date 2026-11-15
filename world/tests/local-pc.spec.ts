@@ -225,7 +225,7 @@ test('kiosk start boards the cockpit seat, standing up leaves', async ({ page })
   expect(again.aircraft.filter((a) => a.alive).length).toBe(1)
 })
 
-test('host changes the field: every list reloads, the apron moves, a flight starts there', async ({ page }) => {
+test('host changes the field: every list reloads, the field moves under the apron, a flight starts there', async ({ page }) => {
   await watchBeacon(page)
   await page.goto(`http://localhost:5173/?ysfxnet=host:${ROOM}`)
   await waitForBeacon(page, (b) => b.role === 'host' && !!b.net && b.net.ready, 90_000, 'server ready')
@@ -234,21 +234,22 @@ test('host changes the field: every list reloads, the apron moves, a flight star
   console.log(`[field] kiosk button ${JSON.stringify(b0.kioskBtn?.map((n) => +n.toFixed(2)))}; field items ${JSON.stringify(b0.kioskItems.map((i) => [i.name, ...i.pos.map((n) => +n.toFixed(2))]))}`)
   expect(b0.field.current).toBe('ATSUGI_AIRBASE')
   // Atsugi's apron is where the first worlds put it by hand (spawn ahead of RW01_01, runway toward -z).
-  expect(Math.hypot(b0.apron!.spawn[0] + 73.6, b0.apron!.spawn[2] - 647.5)).toBeLessThan(6) // beside the runway: 40 m right of the point 23 m ahead of RW01_01
-  expect(Math.abs(b0.apron!.elev)).toBeLessThan(0.5)
+  // In the engine's frame (host + origin, engine/origin.ts) that is beside the runway: 40 m right of the point 23 m ahead of RW01_01.
+  const o0 = b0.apron!.origin!
+  expect(Math.hypot(b0.apron!.spawn[0] + o0[0] + 73.6, b0.apron!.spawn[2] + o0[2] - 647.5)).toBeLessThan(6)
+  expect(Math.abs(b0.apron!.elev + o0[1])).toBeLessThan(0.5)
   const kiosk0 = b0.kioskBtn!
 
   // A flat field other than Atsugi (identifiers from the engine's own list).
   const pick = b0.field.names.find((n) => /HEATHROW|NAHA|KYUSYU|AOMORI/.test(n)) ?? b0.field.names.find((n) => n !== b0.field.current)!
   const r = await page.evaluate((f) => (window as unknown as { __ysfxSetField: (f: string) => string }).__ysfxSetField(f), pick)
   expect(r).toBe('set')
-  const b1 = await waitForBeacon(page, (b) => b.field.current === pick && !!b.net && b.net.ready && !!b.lobby && b.lobby[0] > 10 && !!b.apron && b.apron.stp !== 'RW01_01' || (b.field.current === pick && !!b.apron && Math.hypot(b.apron.spawn[0] - b0.apron!.spawn[0], b.apron.spawn[2] - b0.apron!.spawn[2]) > 150), 120_000, 'engine restarted on the new field')
+  const b1 = await waitForBeacon(page, (b) => b.field.current === pick && !!b.net && b.net.ready && !!b.lobby && b.lobby[0] > 10 && !!b.apron?.origin && Math.hypot(b.apron.origin[0] - o0[0], b.apron.origin[2] - o0[2]) > 150, 120_000, 'engine restarted on the new field')
   console.log(`[field] -> ${b1.field.current}: start positions ${b1.lobby?.[1]}, apron ${JSON.stringify(b1.apron)}`)
-  expect(Math.hypot(b1.apron!.spawn[0] - b0.apron!.spawn[0], b1.apron!.spawn[2] - b0.apron!.spawn[2])).toBeGreaterThan(150)
-  const moved = await waitForBeacon(page, (b) => !!b.kioskBtn && Math.hypot(b.kioskBtn[0] - kiosk0[0], b.kioskBtn[2] - kiosk0[2]) > 150, 10_000, 'kiosk moved to the new apron')
+  // The apron itself stays where every field has it; the kiosk only turns with the runway.
+  expect(Math.hypot(b1.apron!.spawn[0] - b0.apron!.spawn[0], b1.apron!.spawn[2] - b0.apron!.spawn[2])).toBeLessThan(0.01)
+  const moved = await waitForBeacon(page, (b) => !!b.kioskBtn && Math.hypot(b.kioskBtn[0] - b1.apron!.spawn[0], b.kioskBtn[2] - b1.apron!.spawn[2]) < 10 && Math.hypot(b.kioskBtn[0] - kiosk0[0], b.kioskBtn[2] - kiosk0[2]) < 10, 10_000, 'kiosk still at the apron')
   console.log(`[field] kiosk ${JSON.stringify(moved.kioskBtn?.map((n) => Math.round(n)))}`)
-  // (The dev environment's teleport is a console.log stub, so the visitor's move
-  // to the new apron is asserted on the production host, prod-pc.spec.ts.)
   // And a flight starts from the new field's first start position.
   await page.evaluate((stp) => (window as unknown as { __ysfxLobbyStart: (a: string, s: string) => string }).__ysfxLobbyStart('F-16C_FIGHTINGFALCON', stp), b1.apron!.stp)
   const flying = await waitForBeacon(page, (b) => b.seat === 'ysfx-cockpit' && !!b.net && b.net.state === NET_FLYING, 40_000, 'flying on the new field')

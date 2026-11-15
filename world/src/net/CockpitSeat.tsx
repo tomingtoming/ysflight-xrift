@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { type Camera, Group, Matrix4, Quaternion, Vector3 } from 'three'
 import { controlBus } from '../engine/controlBus'
 import { onBeforeEngineDraw, setPiloting, useEngine } from '../engine/engineStore'
+import { readEngineMatrix, writeEngineMatrix } from '../engine/origin'
 import { releaseFire, setFire } from '../engine/fireKey'
 import { frameClock } from '../engine/frameClock'
 import { padStatus, releaseGamepad, updateGamepad } from '../engine/gamepadStick'
@@ -311,7 +312,7 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
     if (airIndex >= 0) {
       const b = airBase(mod, airIndex)
       const f = mod.HEAPF32
-      g.matrix.fromArray(f, b + 3)
+      readEngineMatrix(g.matrix, f, b + 3)
       const c = cockpitRef.current
       if (Math.abs(f[b + 19] - c[0]) > 1e-3 || Math.abs(f[b + 20] - c[1]) > 1e-3 || Math.abs(f[b + 21] - c[2]) > 1e-3) {
         const next: [number, number, number] = [f[b + 19], f[b + 20], f[b + 21]]
@@ -358,7 +359,7 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
     const vis = mod._FsVrPlayerVisualDataPointer() >> 2
     if (delay > 0.0005 && history.current.sample(now - delay, g.matrix)) {
       mod.HEAPF32[vis] = 1
-      for (let i = 0; i < 16; i++) mod.HEAPF32[vis + 1 + i] = g.matrix.elements[i]
+      writeEngineMatrix(mod.HEAPF32, vis + 1, g.matrix)
     } else mod.HEAPF32[vis] = 0
     lead.current.reportVisual(mod.HEAPF32[vis] !== 0, g.matrix)
     g.updateMatrixWorld(true)
@@ -435,7 +436,7 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
         g.updateMatrixWorld(true)
         const vis = mod._FsVrPlayerVisualDataPointer() >> 2
         mod.HEAPF32[vis] = 1
-        for (let i = 0; i < 16; i++) mod.HEAPF32[vis + 1 + i] = ge[i]
+        writeEngineMatrix(mod.HEAPF32, vis + 1, g.matrix)
         lead.current.reportVisual(true, g.matrix)
         const me = drawCamera.matrixWorld.elements
         me[12] += t.p.x; me[13] += t.p.y; me[14] += t.p.z
@@ -449,7 +450,7 @@ export function CockpitSeat({ home, homeYaw = 0, respawn }: CockpitSeatProps) {
         g.updateMatrixWorld(true)
         const vis = mod._FsVrPlayerVisualDataPointer() >> 2
         mod.HEAPF32[vis] = 1
-        for (let i = 0; i < 16; i++) mod.HEAPF32[vis + 1 + i] = g.matrix.elements[i]
+        writeEngineMatrix(mod.HEAPF32, vis + 1, g.matrix)
         lead.current.reportVisual(true, g.matrix)
         // (The camera is left alone.  The only desktop view that is not first
         // person is the host's photo camera, a free camera fixed in the world

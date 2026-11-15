@@ -148,6 +148,12 @@ export function SessionPanel({ position, yaw = 0, role }: { position: [number, n
           <Text fontSize={24} color={0x8090a0} fontFamily="ja">{probe}</Text>
         </Container>
       </Container>
+      {/* a dark back, so the board is not see-through from behind (as the controls sign; toming, 2026-11-15).
+          It faces away from the visitor and takes no pointer: the panel in front is what is clicked. */}
+      <mesh rotation={[0, Math.PI, 0]} position={[0, 0, -0.005]} raycast={() => null}>
+        <planeGeometry args={[W * PX, H * PX]} />
+        <meshBasicMaterial color="#101418" toneMapped={false} />
+      </mesh>
       <mesh position={[0, -(H * PX) / 2 - 0.55, 0]}>
         <boxGeometry args={[0.25, 1.1, 0.25]} />
         <meshStandardMaterial color="#555" />
