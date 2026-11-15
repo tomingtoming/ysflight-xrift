@@ -64,6 +64,11 @@ let cpuN = 0
 const cpuChannel = typeof MessageChannel !== 'undefined' ? new MessageChannel() : null
 if (cpuChannel) cpuChannel.port1.onmessage = () => { cpuPending = false; cpuSum += performance.now() - cpuT0; cpuN++ }
 
+/** What drawEngine read back from the context (engine/glProbe.ts), shown as a fourth line. */
+let probeText = ''
+export function setGaugeProbe(t: string): void { probeText = t }
+export function gaugeProbe(): string { return probeText }
+
 /** Call first thing in a frame (the engine step does). */
 export function gaugeFrameStart(): void {
   if (!cpuChannel || cpuPending) return
