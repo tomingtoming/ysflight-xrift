@@ -26,14 +26,17 @@ test('another field: a client who arrives later stands on the same apron and eac
   console.log(`[mf] fields ${first.field.names.join(' ')}`)
   const same = first.field.current === FIELD
   if (!same) await host.evaluate((f) => (window as unknown as Hooks).__ysfxSetField(f), FIELD)
-  const hb = await waitForBeacon(host, (b) => b.field.current === FIELD && !!b.net && b.net.ready && b.load?.stage === 'ready' && !!b.apron && (same || Math.hypot(b.apron.spawn[0] - first.apron!.spawn[0], b.apron.spawn[2] - first.apron!.spawn[2]) > 1), 120_000, 'host on the other field')
+  const hb = await waitForBeacon(host, (b) => b.field.current === FIELD && !!b.net && b.net.ready && b.load?.stage === 'ready' && !!b.apron && (same || (!!b.apron.origin && Math.hypot(b.apron.origin[0] - first.apron!.origin![0], b.apron.origin[2] - first.apron!.origin![2]) > 1)), 120_000, 'host on the other field')
   console.log(`[mf] host apron ${JSON.stringify(hb.apron)} items ${hb.kioskItems.map((i) => i.name).join(' ')}`)
 
   const client = await pilot(browser, 'C')
   await client.goto(`http://localhost:5173/?ysfxnet=client:${room}`)
   const cb = await waitForBeacon(client, (b) => b.role === 'client' && !!b.net && b.net.ready && b.load?.stage === 'ready' && !!b.apron, 120_000, 'client connected, apron placed')
   console.log(`[mf] client apron ${JSON.stringify(cb.apron)} field ${JSON.stringify(cb.field.current)} lobby ${JSON.stringify(cb.lobby)}`)
-  expect(Math.hypot(cb.apron!.spawn[0] - hb.apron!.spawn[0], cb.apron!.spawn[2] - hb.apron!.spawn[2])).toBeLessThan(1)
+  expect(Math.hypot(cb.apron!.spawn[0] - hb.apron!.spawn[0], cb.apron!.spawn[2] - hb.apron!.spawn[2])).toBeLessThan(0.01)
+  expect(Math.hypot(cb.apron!.origin![0] - hb.apron!.origin![0], cb.apron!.origin![1] - hb.apron!.origin![1], cb.apron!.origin![2] - hb.apron!.origin![2])).toBeLessThan(0.01)
+  // Everybody stands where every field has its apron: Atsugi's place in the host's world.
+  if (!process.env.VITE_YSFX_ANCHOR) expect(Math.hypot(cb.apron!.spawn[0] + 73.6, cb.apron!.spawn[2] - 647.5)).toBeLessThan(1)
 
   const go = ([a, s]: string[]) => (window as unknown as Hooks).__ysfxLobbyStart(a, s)
   await host.evaluate(go, ['F-16C_FIGHTINGFALCON', hb.apron!.stp])
@@ -71,10 +74,13 @@ test('the host changes the field while a client is connected: both engines resta
   if (delay) await client.waitForTimeout(delay)
   const t0 = Date.now()
   await client.reload()
-  const hb = await waitForBeacon(host, (b) => b.field.current === FIELD && !!b.net && b.net.ready && b.load?.stage === 'ready' && !!b.apron && Math.hypot(b.apron.spawn[0] - first.apron!.spawn[0], b.apron.spawn[2] - first.apron!.spawn[2]) > 1, 120_000, 'host on the other field')
+  const hb = await waitForBeacon(host, (b) => b.field.current === FIELD && !!b.net && b.net.ready && b.load?.stage === 'ready' && !!b.apron?.origin && Math.hypot(b.apron.origin[0] - first.apron!.origin![0], b.apron.origin[2] - first.apron!.origin![2]) > 1, 120_000, 'host on the other field')
   const cb = await waitForBeacon(client, (b) => b.role === 'client' && !!b.net && b.net.ready && b.load?.stage === 'ready' && !!b.apron && b.t > t0, 200_000, 'client connected again')
   console.log(`[mf2] client back after ${((cb.t - t0) / 1000).toFixed(1)} s, tries ${JSON.stringify(cb.connect)} apron ${JSON.stringify(cb.apron)} host apron ${JSON.stringify(hb.apron)}`)
-  expect(Math.hypot(cb.apron!.spawn[0] - hb.apron!.spawn[0], cb.apron!.spawn[2] - hb.apron!.spawn[2])).toBeLessThan(1)
+  expect(Math.hypot(cb.apron!.spawn[0] - hb.apron!.spawn[0], cb.apron!.spawn[2] - hb.apron!.spawn[2])).toBeLessThan(0.01)
+  expect(Math.hypot(cb.apron!.origin![0] - hb.apron!.origin![0], cb.apron!.origin![1] - hb.apron!.origin![1], cb.apron!.origin![2] - hb.apron!.origin![2])).toBeLessThan(0.01)
+  // Everybody stands where every field has its apron: Atsugi's place in the host's world.
+  if (!process.env.VITE_YSFX_ANCHOR) expect(Math.hypot(cb.apron!.spawn[0] + 73.6, cb.apron!.spawn[2] - 647.5)).toBeLessThan(1)
   const go = ([a, s]: string[]) => (window as unknown as Hooks).__ysfxLobbyStart(a, s)
   await host.evaluate(go, ['F-16C_FIGHTINGFALCON', hb.apron!.stp])
   await waitForBeacon(host, (b) => !!b.net && b.net.state === NET_FLYING && b.net.playerAirId >= 0, 40_000, 'host flying')

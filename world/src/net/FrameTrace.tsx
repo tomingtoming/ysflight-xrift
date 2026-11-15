@@ -7,6 +7,7 @@
  * pilot on a 120 Hz display sees.  `window.__ysfxTrace = 600` records the
  * next 600 rendered frames into `window.__ysfxTraceData`.
  */
+import { origin } from '../engine/origin'
 import { useEffect, useRef } from 'react'
 import { useUsers } from '@xrift/world-components'
 import { Matrix4, Quaternion, Vector3 } from 'three'
@@ -38,7 +39,7 @@ export function FrameTrace() {
       t.qa.identity()
       for (let i = 0, n = airCount(mod); i < n; i++) {
         const b = airBase(mod, i)
-        if (f[b + 2] !== 0) { a = [f[b + 3 + 12], f[b + 3 + 13], f[b + 3 + 14]]; t.m.fromArray(f, b + 3).decompose(t.p, t.qa, t.s); break }
+        if (f[b + 2] !== 0) { a = [f[b + 3 + 12] - origin.x, f[b + 3 + 13] - origin.y, f[b + 3 + 14] - origin.z]; t.m.fromArray(f, b + 3).decompose(t.p, t.qa, t.s); break }
       }
       cam.current.setFromMatrixPosition(camera.matrixWorld)
       const p = readFeetAtRender(users, feet.current)

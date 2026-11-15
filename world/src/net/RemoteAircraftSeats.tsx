@@ -9,6 +9,7 @@ import { Seat } from '@xrift/world-components'
 import { useRef, useState } from 'react'
 import { Group } from 'three'
 import { useEngine } from '../engine/engineStore'
+import { readEngineMatrix } from '../engine/origin'
 import { airBase, airCount } from './netState'
 
 const PASSENGER_OFFSET: [number, number, number] = [0, -0.72, 1.1] // behind the pilot, hip height
@@ -41,7 +42,7 @@ export function RemoteAircraftSeats() {
       const g = groups.current.get(id)
       if (g) {
         g.matrixAutoUpdate = false
-        g.matrix.fromArray(f, b + 3)
+        readEngineMatrix(g.matrix, f, b + 3)
         g.updateMatrixWorld(true) // the host reads the seat surface after this callback
       }
     }

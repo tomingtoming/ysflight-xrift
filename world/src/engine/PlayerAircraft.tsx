@@ -8,6 +8,7 @@
  * is switched to cockpit view (own exterior hidden, F1) and back to the
  * outside view on exit (F2).
  */
+import { readEngineMatrix } from './origin'
 import { useFrame } from '@react-three/fiber'
 import { Seat } from '@xrift/world-components'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -43,7 +44,7 @@ export function PlayerAircraft({ marker = false, seat = true }: PlayerAircraftPr
     if (v !== valid) setValid(v)
     if (!v) return
     g.matrixAutoUpdate = false
-    g.matrix.fromArray(f, p + 1)
+    readEngineMatrix(g.matrix, f, p + 1)
     g.matrixWorldNeedsUpdate = true
     const c = cockpitRef.current
     if (Math.abs(f[p + 17] - c[0]) > 1e-3 || Math.abs(f[p + 18] - c[1]) > 1e-3 || Math.abs(f[p + 19] - c[2]) > 1e-3) {

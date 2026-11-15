@@ -72,7 +72,8 @@ export interface Beacon {
   keys: { n: number; last: string }
   cockpit: number[] | null
   field: { current: string | null; names: string[] }
-  apron: { spawn: number[]; dir: number[]; elev: number; stp: string } | null
+  /** `origin`: where the engine world sits in the host world (engine = host + origin). */
+  apron: { spawn: number[]; dir: number[]; elev: number; stp: string; origin?: number[] } | null
   kioskBtn: number[] | null
   kioskItems: Array<{ name: string; pos: number[] }>
   preview?: { air: string; pos: number[]; radius: number } | null

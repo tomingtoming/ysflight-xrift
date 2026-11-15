@@ -18,14 +18,14 @@ test('every field: the apron beside the first start position', async ({ page }) 
   const only = process.env.YSFX_FIELDS?.split(',')
   for (const f of first.field!.names) {
     if (only && !only.includes(f)) continue
-    const before = (await waitForBeacon(page, (x) => !!x.apron, 5_000, 'apron')).apron!.spawn
+    const before = (await waitForBeacon(page, (x) => !!x.apron?.origin, 5_000, 'apron')).apron!.origin!
     const same = f === (await waitForBeacon(page, (x) => !!x.field, 5_000, 'field')).field!.current
     if (!same) await page.evaluate((x) => (window as unknown as { __ysfxSetField: (f: string) => string }).__ysfxSetField(x), f)
-    const b = await waitForBeacon(page, (x) => x.field?.current === f && !!x.net && x.net.ready && x.load?.stage === 'ready' && !!x.apron && (same || Math.hypot(x.apron.spawn[0] - before[0], x.apron.spawn[2] - before[2]) > 1) && !!x.kioskBtn && Math.hypot(x.kioskBtn[0] - x.apron.spawn[0], x.kioskBtn[2] - x.apron.spawn[2]) < 10, 120_000, `field ${f} ready`)
+    const b = await waitForBeacon(page, (x) => x.field?.current === f && !!x.net && x.net.ready && x.load?.stage === 'ready' && !!x.apron && (same || (!!x.apron.origin && Math.hypot(x.apron.origin[0] - before[0], x.apron.origin[2] - before[2]) > 1)) && !!x.kioskBtn && Math.hypot(x.kioskBtn[0] - x.apron.spawn[0], x.kioskBtn[2] - x.apron.spawn[2]) < 10, 120_000, `field ${f} ready`)
     await page.waitForTimeout(2500)
     const s = (await waitForBeacon(page, (x) => !!x.ground.feet, 5_000, 'feet'))
     const feet = s.ground.feet!
-    console.log(`[field] ${f} stp ${b.apron!.stp} spawn ${b.apron!.spawn.map((n) => n.toFixed(1)).join(',')} elev ${b.apron!.elev.toFixed(1)} feet ${feet.map((n) => n.toFixed(1)).join(',')} off ${Math.hypot(feet[0] - b.apron!.spawn[0], feet[2] - b.apron!.spawn[2]).toFixed(1)} m`)
+    console.log(`[field] ${f} stp ${b.apron!.stp} spawn ${b.apron!.spawn.map((n) => n.toFixed(1)).join(',')} origin ${b.apron!.origin!.map((n) => n.toFixed(1)).join(',')} elev ${b.apron!.elev.toFixed(1)} feet ${feet.map((n) => n.toFixed(1)).join(',')} off ${Math.hypot(feet[0] - b.apron!.spawn[0], feet[2] - b.apron!.spawn[2]).toFixed(1)} m`)
     await page.screenshot({ path: test.info().outputPath(`field-${f}.png`) })
     if (process.env.YSFX_TURN) {
       await page.mouse.click(640, 360)

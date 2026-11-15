@@ -19,13 +19,19 @@
  * (the beacon's ground check); this component owns it except while the
  * airfield measures the apron elevation (StateBeacon probeBusy).  The grid
  * block is this component's alone.
+ *
+ * Everything here is in the host's world; the engine is asked and answers
+ * in its own (engine/origin.ts), converted where the blocks are touched.
+ * Until the field's origin is known nothing is asked: the airfield's flat
+ * tiles carry the visitor meanwhile.
  */
 import { useFrame, useThree } from '@react-three/fiber'
 import { HeightfieldCollider, RigidBody } from '@react-three/rapier'
 import { useUsers } from '@xrift/world-components'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Vector3 } from 'three'
 import { useEngine } from '../engine/engineStore'
+import { origin } from '../engine/origin'
 import { readFeet } from './seatLead'
 import { isProbeBusy, localSeatId, publishGround, publishPatch } from './StateBeacon'
 
@@ -59,20 +65,25 @@ export function GroundPatch({ onReady }: { onReady?: (ready: boolean) => void })
   const since = useRef(Infinity)
   const builds = useRef(0)
   const v = useRef(new Vector3())
+  const rev = useRef(origin.rev)
 
-  // Another engine is another field: the old heights mean nothing.
-  useEffect(() => {
+  // Another engine is another field, and so is another origin: the old heights mean nothing.
+  const startOver = useCallback(() => {
     current.current = null
     gridAsked.current = null
     asked.current = null
     since.current = Infinity
     setPatch(null)
     publishPatch(null)
+    publishGround(null)
     onReady?.(false)
-  }, [mod, onReady])
+  }, [onReady])
+  useEffect(startOver, [mod, startOver])
 
   useFrame((_s, dt) => {
     if (!mod) return
+    if (rev.current !== origin.rev) { rev.current = origin.rev; startOver() }
+    if (!origin.ready) return
     const f = mod.HEAPF32
     const feet = devFocus ? v.current.set(devFocus.x, 0, devFocus.z) : (readFeet(users, v.current) ?? camera.position)
 
@@ -81,8 +92,8 @@ export function GroundPatch({ onReady }: { onReady?: (ready: boolean) => void })
     else {
       const gp = mod._FsVrGroundProbeDataPointer() >> 2
       const a = asked.current
-      if (a && f[gp + 3] !== 0 && f[gp] === a.x && f[gp + 1] === a.z) publishGround({ height: f[gp + 2], deck: f[gp + 4] !== 0 })
-      const x = Math.fround(feet.x), z = Math.fround(feet.z)
+      if (a && f[gp + 3] !== 0 && f[gp] === a.x && f[gp + 1] === a.z) publishGround({ height: f[gp + 2] - origin.y, deck: f[gp + 4] !== 0 })
+      const x = Math.fround(feet.x + origin.x), z = Math.fround(feet.z + origin.z) // as the engine is asked
       f[gp] = x
       f[gp + 1] = z
       asked.current = { x, z }
@@ -93,7 +104,7 @@ export function GroundPatch({ onReady }: { onReady?: (ready: boolean) => void })
     const g = gridAsked.current
     if (g && f[gg + 6] !== 0 && f[gg + 5] === g.req) {
       gridAsked.current = null
-      const heights = Array.from(f.subarray(gg + 8, gg + 8 + SIDE * SIDE))
+      const heights = Array.from(f.subarray(gg + 8, gg + 8 + SIDE * SIDE), (h) => h - origin.y)
       const c = current.current
       let same = !!c && c.cx === g.cx && c.cz === g.cz
       if (same) for (let i = 0; i < heights.length; i++) if (Math.abs(heights[i] - c!.heights[i]) > SAME_M) { same = false; break }
@@ -117,8 +128,8 @@ export function GroundPatch({ onReady }: { onReady?: (ready: boolean) => void })
       if (due) {
         since.current = 0
         const r = (req.current = (req.current % 1e6) + 1)
-        f[gg + 1] = cx
-        f[gg + 2] = cz
+        f[gg + 1] = cx + origin.x
+        f[gg + 2] = cz + origin.z
         f[gg + 3] = SPACING
         f[gg + 4] = SIDE
         f[gg] = r // last: the engine answers when this differs from its last answer
