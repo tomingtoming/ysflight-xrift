@@ -85,7 +85,7 @@ export interface YsfxBeacon {
   view?: number
   engine?: string | null
   /** Trial "peer sky" link (net/PeerLink.tsx). */
-  peer?: { room: string | null; open: boolean; sent: number; got: number; peers: number; firstGotAt: number; hitsOut: number; hitsIn: number }
+  peer?: { room: string | null; open: boolean; sent: number; got: number; peers: number; firstGotAt: number; hitsOut: number; hitsIn: number; hitsDropped: number }
   /** Engine steps so far: tells a running engine from a stopped one. */
   steps?: number
   /** SaccFlight-style hand controls (vr/saccControls.ts) while presenting and seated. */

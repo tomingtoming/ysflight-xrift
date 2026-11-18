@@ -123,6 +123,10 @@ test('a gun hit crosses: the shooter reports it, the owner takes the damage and 
     if (process.env.YSFX_SHOTS) await sh.screenshot({ path: `${process.env.YSFX_SHOTS}/s-firing.png` })
     await waitForBeacon(t, (x) => ((x as P).peer?.hitsIn ?? 0) > 0, 20_000, 'a hit reaches T')
     const down = await waitForBeacon(t, (x) => !mine(x), 30_000, 'T goes down') as P
+    const own = down.aircraft.find((q) => q.player), sCopy = other(down)
+    console.log(`[gun] when T went down the shooter was ${own && sCopy ? Math.hypot(own.pos[0] - sCopy.pos[0], own.pos[2] - sCopy.pos[2]).toFixed(0) : '?'} m away (a ram needs it on top of T)`)
+    const said = await waitForBeacon(t, (x) => (x.panel?.log ?? []).some((l) => /Shot down by/.test(l)), 10_000, 'T is told who shot it')
+    console.log(`[gun] T's log: ${JSON.stringify((said.panel?.log ?? []).filter((l) => /Shot down/.test(l)))}`)
     await sh.keyboard.up('Shift'); await sh.keyboard.up('a')
     const sNow = await waitForBeacon(sh, () => true, 5_000, 'S now') as P
     console.log(`[gun] T went down: T took ${down.peer?.hitsIn} hits, S reported ${sNow.peer?.hitsOut}; T's log ${JSON.stringify((down.panel?.log ?? []).slice(-3))}`)
@@ -142,6 +146,42 @@ test('a gun hit crosses: the shooter reports it, the owner takes the damage and 
     await waitForBeacon(t, (x) => !!mine(x), 40_000, 'T out again')
     const again = await waitForBeacon(sh, (x) => !!other(x), 20_000, 'S sees T again')
     console.log(`[gun] T flew again; S sees ${JSON.stringify(other(again))}`)
+  } finally {
+    await ctxS.close(); await ctxT.close()
+  }
+})
+
+test('control: with the hit messages thrown away, what do the shooter\'s rounds do on the owner\'s side?', async ({ browser }) => {
+  test.setTimeout(300_000)
+  const sky = `ctl${Date.now() % 100000}`
+  type P = B & { peer?: { hitsOut: number; hitsIn: number; hitsDropped: number } }
+  const ctxT = await browser.newContext(); const t = await ctxT.newPage(); await watchBeacon(t)
+  const ctxS = await browser.newContext(); const sh = await ctxS.newPage(); await watchBeacon(sh)
+  const dist = (x: Beacon) => { const m = x.aircraft.find((q) => q.player), o = x.aircraft.find((q) => !q.player); return m && o ? Math.hypot(m.pos[0] - o.pos[0], m.pos[2] - o.pos[2]) : NaN }
+  try {
+    await t.goto(`http://localhost:5173/?ysfxpeer=${sky}:T&ysfxnohit=1`)
+    await waitForBeacon(t, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, 'T lobby')
+    await t.evaluate(go, ['B747', 'RW01_01'])
+    await waitForBeacon(t, (x) => !!mine(x), 40_000, 'T out')
+    await sh.goto(`http://localhost:5173/?ysfxpeer=${sky}:S`)
+    await waitForBeacon(sh, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, 'S lobby')
+    await sh.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_04'])
+    await waitForBeacon(sh, (x) => !!mine(x) && !!other(x) && x.seat !== null, 40_000, 'S out, seated, sees T')
+    await sh.mouse.click(640, 360)
+    // Roll to about 150 m and stop there (throttle to idle is slow: cut early), then shoot for a while.
+    for (let i = 0; i < 20; i++) await sh.keyboard.press('q')
+    await sh.waitForTimeout(2500)
+    await sh.keyboard.down('a'); await sh.waitForTimeout(6000)
+    await sh.keyboard.down('Shift')
+    for (let i = 0; i < 8; i++) {
+      await sh.waitForTimeout(700)
+      const [xs, xt] = await Promise.all([waitForBeacon(sh, () => true, 5_000, 'S'), waitForBeacon(t, () => true, 5_000, 'T')]) as P[]
+      console.log(`[control] +${((i + 1) * 0.7).toFixed(1)}s firing: on T: own ${mine(xt) ? 'alive' : 'DOWN'}, S ${dist(xt).toFixed(0)} m away, hits dropped ${xt.peer?.hitsDropped}; on S: T's copy ${other(xs) ? 'alive' : 'dead'}, reported ${xs.peer?.hitsOut}, S speed ${(xs.hud ?? [''])[0].slice(0, 16)}`)
+    }
+    await sh.keyboard.up('Shift'); await sh.keyboard.up('a')
+    // The copy died on S, the owner did not: S should get the aircraft back.
+    const back = await waitForBeacon(sh, (x) => !!other(x), 15_000, 'S sees T again').catch(() => null)
+    console.log(`[control] after the shooting: S ${back ? 'has T back: ' + JSON.stringify(other(back)) : 'never got T back'}`)
   } finally {
     await ctxS.close(); await ctxT.close()
   }

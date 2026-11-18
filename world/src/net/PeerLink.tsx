@@ -20,7 +20,10 @@ const SEND_MS = 100
 const SILENT_MS = 3000
 
 /** What the test beacon reports about the link. */
-export const peerStatus = { room: null as string | null, open: false, sent: 0, got: 0, peers: 0, firstGotAt: 0, hitsOut: 0, hitsIn: 0 }
+export const peerStatus = { room: null as string | null, open: false, sent: 0, got: 0, peers: 0, firstGotAt: 0, hitsOut: 0, hitsIn: 0, hitsDropped: 0 }
+
+/** Dev aid: ?ysfxnohit=1 throws away the hits aimed at this tab, to tell what its own engine does with the shooter's rounds. */
+const DROP_HITS = import.meta.env.DEV && typeof location !== 'undefined' && /[?&]ysfxnohit=1/.test(location.search)
 
 const b64 = (u: Uint8Array): string => { let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s) }
 const unb64 = (s: string): Uint8Array => { const r = atob(s); const u = new Uint8Array(r.length); for (let i = 0; i < r.length; i++) u[i] = r.charCodeAt(i); return u }
@@ -55,8 +58,9 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
           seen.current.set(m.k, performance.now())
           if (peerStatus.got++ === 0) peerStatus.firstGotAt = performance.now()
         } else if (m.t === 'd' && m.v === key) {
+          if (DROP_HITS) { peerStatus.hitsDropped++; return }
           // A hit someone else's weapons scored on this browser's aircraft: the engine here decides what it does.
-          mod.ccall('FsVrPeerPushHit', null, ['string', 'number', 'number'], [m.n ?? '', m.p ?? 0, m.o ?? 0])
+          mod.ccall('FsVrPeerPushHit', null, ['string', 'number', 'number', 'number'], [m.n ?? '', m.p ?? 0, m.o ?? 0, m.g ?? -1])
           peerStatus.hitsIn++
         } else if (m.t === 'x' || m.t === 'bye') {
           // 'bye' names a socket; its aircraft keys are the ones it sent under.
@@ -88,7 +92,7 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
     if (live && live.readyState === WebSocket.OPEN && mod._FsVrPeerTakeHit) {
       for (let h = mod._FsVrPeerTakeHit(), n = 0; h !== 0 && n < 64; h = mod._FsVrPeerTakeHit(), n++) {
         const dv = new DataView(mod.HEAPU8.buffer)
-        live.send(JSON.stringify({ t: 'd', k: key, v: mod.UTF8ToString(h + 8), p: dv.getInt32(h, true), o: dv.getInt32(h + 4, true), n: pilotName }))
+        live.send(JSON.stringify({ t: 'd', k: key, v: mod.UTF8ToString(h + 12), p: dv.getInt32(h, true), o: dv.getInt32(h + 4, true), g: dv.getInt32(h + 8, true), n: pilotName }))
         peerStatus.hitsOut++
       }
     }
