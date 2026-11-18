@@ -28,6 +28,7 @@ export interface YsflightModule {
   /** Trial "peer sky" (net/PeerLink.tsx): absent in engines built before it. */
   _FsVrPeerOwnStatePointer?: () => number
   _FsVrPeerCount?: () => number
+  _FsVrPeerTakeHit?: () => number
   // fsvr.h network-lobby automation (ysflight-xrift fork)
   _FsVrNetRequestLeave: () => void
   _FsVrNetStateDataPointer: () => number

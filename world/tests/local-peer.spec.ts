@@ -22,7 +22,7 @@ test('two engines, no server between them: see each other, survive the first one
   test.setTimeout(300_000)
   const sky = `sky${Date.now() % 100000}`
   const ctxA = await browser.newContext(); const a = await ctxA.newPage(); await watchBeacon(a)
-  a.on('console', (m) => { if (m.type() === 'error' || /ysf|abort|ABI/i.test(m.text())) console.log('[A]', m.text().slice(0, 300)) }); a.on('pageerror', (e) => console.log('[A pageerror]', String(e).slice(0, 400)))
+  a.on('console', (m) => { if (/boot failed|abort/i.test(m.text())) console.log('[A]', m.text().slice(0, 300)) })
   const ctxB = await browser.newContext(); const b = await ctxB.newPage(); await watchBeacon(b)
   try {
     await a.goto(`http://localhost:5173/?ysfxpeer=${sky}:A`)
@@ -86,6 +86,64 @@ test('two engines, no server between them: see each other, survive the first one
     expect(mine(after)).toBeTruthy()
   } finally {
     await ctxB.close(); await ctxA.close().catch(() => {})
+  }
+})
+
+test('a gun hit crosses: the shooter reports it, the owner takes the damage and goes down, then flies again', async ({ browser }) => {
+  test.setTimeout(300_000)
+  const sky = `gun${Date.now() % 100000}`
+  type P = B & { peer?: { hitsOut: number; hitsIn: number } }
+  const ctxT = await browser.newContext(); const t = await ctxT.newPage(); await watchBeacon(t)
+  const ctxS = await browser.newContext(); const sh = await ctxS.newPage(); await watchBeacon(sh)
+  try {
+    // RW01_04 looks straight down the runway at RW01_01, about 400 m ahead.
+    await t.goto(`http://localhost:5173/?ysfxpeer=${sky}:T`)
+    await waitForBeacon(t, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, 'T lobby')
+    await t.evaluate(go, [process.env.YSFX_TARGET || 'B747', 'RW01_01'])
+    await waitForBeacon(t, (x) => !!mine(x), 40_000, 'T out')
+    await sh.goto(`http://localhost:5173/?ysfxpeer=${sky}:S`)
+    await waitForBeacon(sh, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, 'S lobby')
+    await sh.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_04'])
+    await waitForBeacon(sh, (x) => !!mine(x) && !!other(x) && x.seat !== null, 40_000, 'S out, seated, sees T')
+    await sh.mouse.click(640, 360)
+    await sh.waitForTimeout(500)
+    if (process.env.YSFX_SHOTS) await sh.screenshot({ path: `${process.env.YSFX_SHOTS}/s-aims-at-t.png` })
+
+    // On its gear the F-16's nose points 1.4 deg up, so its rounds climb 2.3 m per
+    // 100 m (measured: 12 m up at 400 m, over anything parked there).  The target is
+    // a 747 and the shooter rolls in: between 240 m and 60 m the rounds cross its fuselage.
+    const dist = (x: Beacon) => { const m = mine(x)!, o = other(x)!; return Math.hypot(m.pos[0] - o.pos[0], m.pos[2] - o.pos[2]) }
+    for (let i = 0; i < 20; i++) await sh.keyboard.press('q')
+    await waitForBeacon(sh, (x) => !!mine(x) && !!other(x) && dist(x) < 240, 30_000, 'S within 240 m')
+    await sh.keyboard.down('a') // throttle back while shooting
+    await sh.keyboard.down('Shift')
+    await sh.waitForTimeout(700)
+    const dbg = await waitForBeacon(sh, () => true, 5_000, 'S dbg') as P
+    console.log(`[gun] S ${mine(dbg) && other(dbg) ? dist(dbg).toFixed(0) : '?'} m from T after 0.7 s of trigger: fire ${JSON.stringify(dbg.fire)} hud ${JSON.stringify((dbg.hud ?? []).slice(0, 3))} peer ${JSON.stringify(dbg.peer)} sees ${JSON.stringify(dbg.aircraft.map((q) => [q.id, q.alive, q.player]))}`)
+    if (process.env.YSFX_SHOTS) await sh.screenshot({ path: `${process.env.YSFX_SHOTS}/s-firing.png` })
+    await waitForBeacon(t, (x) => ((x as P).peer?.hitsIn ?? 0) > 0, 20_000, 'a hit reaches T')
+    const down = await waitForBeacon(t, (x) => !mine(x), 30_000, 'T goes down') as P
+    await sh.keyboard.up('Shift'); await sh.keyboard.up('a')
+    const sNow = await waitForBeacon(sh, () => true, 5_000, 'S now') as P
+    console.log(`[gun] T went down: T took ${down.peer?.hitsIn} hits, S reported ${sNow.peer?.hitsOut}; T's log ${JSON.stringify((down.panel?.log ?? []).slice(-3))}`)
+    if (process.env.YSFX_SHOTS) { await sh.screenshot({ path: `${process.env.YSFX_SHOTS}/s-after-kill.png` }); await t.screenshot({ path: `${process.env.YSFX_SHOTS}/t-after-kill.png` }) }
+    // On the shooter the copy is dead and stays dead (no ghost made again from late states).
+    for (let i = 0; i < 4; i++) {
+      await sh.waitForTimeout(1000)
+      const x = await waitForBeacon(sh, () => true, 5_000, 'S poll')
+      console.log(`[gun] +${i + 1}s S sees ${JSON.stringify(x.aircraft.map((q) => [q.id, q.alive, q.player, q.name]))}`)
+      expect(other(x)).toBeFalsy()
+    }
+    console.log(`[gun] S itself: ${JSON.stringify(mine(await waitForBeacon(sh, () => true, 5_000, 'S own')) ?? 'gone (rolled into the wreck?)')}`)
+
+    // T flies again: a new aircraft on S.
+    await waitForBeacon(t, (x) => !!x.net && x.net.state !== NET_FLYING, 20_000, 'T back in standby')
+    await t.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_02'])
+    await waitForBeacon(t, (x) => !!mine(x), 40_000, 'T out again')
+    const again = await waitForBeacon(sh, (x) => !!other(x), 20_000, 'S sees T again')
+    console.log(`[gun] T flew again; S sees ${JSON.stringify(other(again))}`)
+  } finally {
+    await ctxS.close(); await ctxT.close()
   }
 })
 
