@@ -53,6 +53,7 @@ test('two engines, no server between them: see each other, survive the first one
     expect(seenB.name).toMatch(/B$/)
     expect(d).toBeLessThan(5)
 
+    if (process.env.YSFX_SHOTS) { await a.screenshot({ path: `${process.env.YSFX_SHOTS}/a-sees-b.png` }); await b.screenshot({ path: `${process.env.YSFX_SHOTS}/b-sees-a.png` }) }
     // B rolls down the runway at full throttle: does A's picture of B keep up?
     await b.mouse.click(640, 360)
     for (let i = 0; i < 20; i++) await b.keyboard.press('q')
@@ -78,6 +79,7 @@ test('two engines, no server between them: see each other, survive the first one
     console.log(`[local-peer] A closed -> gone from B after ${Date.now() - tClose} ms; B peers ${JSON.stringify(gone.peer)}`)
     for (let i = 0; i < 5; i++) { await b.waitForTimeout(1000); const x = await waitForBeacon(b, () => true, 5_000, 'B poll') as B; console.log(`[local-peer] +${i + 1}s state ${x.net?.state} air ${JSON.stringify(x.aircraft.map((q) => [q.id, q.alive, q.player, q.name]))}`) }
     const after = await waitForBeacon(b, () => true, 5_000, 'B after') as B
+    if (process.env.YSFX_SHOTS) await b.screenshot({ path: `${process.env.YSFX_SHOTS}/b-after-a-left.png` })
     console.log(`[local-peer] B after A left: steps ${before.steps} -> ${after.steps}, state ${after.net?.state}, own ${JSON.stringify(mine(after))}`)
     expect(after.steps! - before.steps!).toBeGreaterThan(100)
     expect(after.net?.state).toBe(NET_FLYING)
