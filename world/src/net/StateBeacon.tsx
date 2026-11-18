@@ -85,7 +85,7 @@ export interface YsfxBeacon {
   view?: number
   engine?: string | null
   /** Trial "peer sky" link (net/PeerLink.tsx). */
-  peer?: { room: string | null; open: boolean; sent: number; got: number; peers: number; firstGotAt: number; hitsOut: number; hitsIn: number; hitsDropped: number }
+  peer?: { room: string | null; open: boolean; sent: number; got: number; peers: number; firstGotAt: number; hitsOut: number; hitsIn: number; hitsDropped: number; stateAge: { n: number; sum: number; max: number }; hitAge: { n: number; sum: number; max: number } }
   /** Engine steps so far: tells a running engine from a stopped one. */
   steps?: number
   /** SaccFlight-style hand controls (vr/saccControls.ts) while presenting and seated. */
@@ -244,7 +244,7 @@ export function StateBeacon({ role, room, field, election }: { role: NetRole | n
       detail.ctl = Array.from(f.subarray(c, c + 12))
       detail.ctlOwner = controlBus.owner()
       detail.engine = engineBuildId()
-      detail.peer = { ...peerStatus }
+      detail.peer = { ...peerStatus, stateAge: { ...peerStatus.stateAge }, hitAge: { ...peerStatus.hitAge } }
       detail.steps = ysfxStats.steps
       detail.loadout = { editor: readLoadout(mod), carried: readCarried(mod) }
       detail.view = f[(mod._FsVrExternalViewDataPointer() >> 2) + 3]

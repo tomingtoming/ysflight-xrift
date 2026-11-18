@@ -187,6 +187,121 @@ test('control: with the hit messages thrown away, what do the shooter\'s rounds 
   }
 })
 
+// In the air: the target starts at 10,000 ft, the shooter starts from the same
+// place a few seconds later -- same aircraft, no input, so it flies the same path
+// behind it with the target dead ahead.
+type AirP = B & { peer?: { hitsOut: number; hitsIn: number; stateAge: { n: number; sum: number; max: number }; hitAge: { n: number; sum: number; max: number } } }
+const own = (x: Beacon) => x.aircraft.find((q) => q.player)
+const copy = (x: Beacon) => x.aircraft.find((q) => !q.player)
+const d3 = (p: number[], q: number[]) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
+async function airPair(browser: import('@playwright/test').Browser, sky: string, gapMs: number) {
+  const ctxT = await browser.newContext(); const t = await ctxT.newPage(); await watchBeacon(t)
+  const ctxS = await browser.newContext(); const sh = await ctxS.newPage(); await watchBeacon(sh)
+  await t.goto(`http://localhost:5173/?ysfxpeer=${sky}:T`)
+  await sh.goto(`http://localhost:5173/?ysfxpeer=${sky}:S`)
+  await waitForBeacon(t, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, 'T lobby')
+  await waitForBeacon(sh, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, 'S lobby')
+  await t.evaluate(go, ['F-16C_FIGHTINGFALCON', 'NORTH10000_01'])
+  await waitForBeacon(t, (x) => !!mine(x), 40_000, 'T out')
+  await t.waitForTimeout(gapMs)
+  await sh.evaluate(go, ['F-16C_FIGHTINGFALCON', 'NORTH10000_01'])
+  await waitForBeacon(sh, (x) => !!mine(x) && !!other(x) && x.seat !== null, 40_000, 'S out, seated, sees T')
+  await sh.mouse.click(640, 360)
+  return { t, sh, close: async () => { await ctxS.close(); await ctxT.close() } }
+}
+/** How far behind the truth the shooter's picture of the target is, as time: sampled over a few seconds of flight. */
+async function pictureLag(t: import('@playwright/test').Page, sh: import('@playwright/test').Page, tag: string) {
+  const lags: number[] = []
+  let spd = 0
+  for (let i = 0; i < 12; i++) {
+    await sh.waitForTimeout(250)
+    const a = await waitForBeacon(t, (x) => !!mine(x), 5_000, 'T')
+    const v = await waitForBeacon(sh, (x) => !!other(x) && x.t > a.t, 5_000, 'S')
+    const b = await waitForBeacon(t, (x) => !!mine(x) && x.t > v.t, 5_000, 'T')
+    // T's own position at the time of S's beacon, from the two T beacons around it (or the nearer one).
+    const p1 = mine(a)!.pos, p2 = mine(b)!.pos
+    if (b.t > a.t) spd = d3(p1, p2) / ((b.t - a.t) / 1000)
+    if (!spd) continue
+    const seen = other(v)!.pos
+    const dir = b.t > a.t ? [0, 1, 2].map((k) => (p2[k] - p1[k]) / d3(p1, p2)) : null
+    if (!dir) continue
+    const along = [0, 1, 2].reduce((acc, k) => acc + (p2[k] - seen[k]) * dir[k], 0) // metres the picture is behind T's newest
+    lags.push(along / spd * 1000 - (b.t - v.t))
+  }
+  lags.sort((x, y) => x - y)
+  console.log(`[${tag}] T flies ${spd.toFixed(0)} m/s; S's picture of T is behind by (ms, ${lags.length} samples) median ${lags[lags.length >> 1]?.toFixed(0)}, min ${lags[0]?.toFixed(0)}, max ${lags[lags.length - 1]?.toFixed(0)}`)
+}
+/** After the target is hit for good: what its owner sees of it and what the shooter sees of it, side by side. */
+async function aftermath(t: import('@playwright/test').Page, sh: import('@playwright/test').Page, tag: string) {
+  for (let i = 0; i < 10; i++) {
+    await sh.waitForTimeout(700)
+    const [xt, xs] = await Promise.all([waitForBeacon(t, () => true, 5_000, 'T'), waitForBeacon(sh, () => true, 5_000, 'S')])
+    const o = own(xt), c = copy(xs)
+    console.log(`[${tag}] +${((i + 1) * 0.7).toFixed(1)}s owner: ${o ? `${o.alive ? 'falling' : 'gone'} alt ${o.pos[1].toFixed(0)}` : 'no aircraft'} | shooter's picture: ${c ? `${c.alive ? 'falling' : 'gone'} alt ${c.pos[1].toFixed(0)}` : 'no aircraft'}${o && c ? ` | ${d3(o.pos, c.pos).toFixed(0)} m apart` : ''}`)
+  }
+}
+
+test('in the air: guns from behind', async ({ browser }) => {
+  test.setTimeout(300_000)
+  const { t, sh, close } = await airPair(browser, `airg${Date.now() % 100000}`, 1500)
+  try {
+    const first = await waitForBeacon(sh, (x) => !!mine(x) && !!other(x), 5_000, 'S') as AirP
+    console.log(`[air-gun] S starts ${d3(mine(first)!.pos, other(first)!.pos).toFixed(0)} m behind T; S hud ${JSON.stringify((first.hud ?? []).slice(0, 3))}`)
+    await pictureLag(t, sh, 'air-gun')
+    if (process.env.YSFX_SHOTS) await sh.screenshot({ path: `${process.env.YSFX_SHOTS}/air-gun-aim.png` })
+    // Both glide nose-down, so the target ahead sits below the gun line: shoot
+    // while easing the nose down through it and back up, a few times.
+    await sh.keyboard.down('Shift')
+    // Enough for this test: rounds that hit on the shooter's side arrive at the owner.  (Two rounds do not bring an F-16 down.)
+    const isDown = (x: Beacon) => ((x as AirP).peer?.hitsIn ?? 0) > 0
+    let down: AirP | null = null
+    for (let pass = 0; pass < 6 && !down; pass++) {
+      for (const key of ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowDown', 'ArrowUp']) {
+        await sh.keyboard.press(key)
+        down = await waitForBeacon(t, isDown, 700, 'T hit').catch(() => null) as AirP | null
+        const x = await waitForBeacon(sh, () => true, 5_000, 'S') as AirP
+        if (pass === 0) console.log(`[air-gun] ${key}: S pitch stick ${x.ctl?.[2]?.toFixed(2)}, reported ${x.peer?.hitsOut}, T ${other(x) ? d3(mine(x)!.pos, other(x)!.pos).toFixed(0) + ' m ahead, ' + (other(x)!.pos[1] - mine(x)!.pos[1]).toFixed(0) + ' m above' : 'gone'}`)
+        if (down) break
+      }
+    }
+    await sh.keyboard.up('Shift')
+    const xs = await waitForBeacon(sh, () => true, 5_000, 'S') as AirP, xt = await waitForBeacon(t, () => true, 5_000, 'T') as AirP
+    console.log(`[air-gun] ${down ? 'hits reached T' : 'no hit reached T'} (T ${mine(xt) ? 'still flying' : 'no longer flying'}, shot down by the gun: ${(xt.panel?.log ?? []).some((l) => /Shot down by/.test(l))}): S reported ${xs.peer?.hitsOut}, T took ${xt.peer?.hitsIn}; hit age at T (ms) avg ${(xt.peer!.hitAge.sum / Math.max(1, xt.peer!.hitAge.n)).toFixed(1)} max ${xt.peer!.hitAge.max}; state age at S avg ${(xs.peer!.stateAge.sum / Math.max(1, xs.peer!.stateAge.n)).toFixed(1)} max ${xs.peer!.stateAge.max}; S gun ${JSON.stringify((xs.hud ?? []).slice(2, 3))}`)
+    if (process.env.YSFX_SHOTS) await sh.screenshot({ path: `${process.env.YSFX_SHOTS}/air-gun-after.png` })
+    expect(down).toBeTruthy()
+    expect(xt.peer?.hitsIn).toBe(xs.peer?.hitsOut)
+  } finally { await close() }
+})
+
+test('in the air: a missile from behind', async ({ browser }) => {
+  test.setTimeout(300_000)
+  const { t, sh, close } = await airPair(browser, `airm${Date.now() % 100000}`, 5000)
+  try {
+    const first = await waitForBeacon(sh, (x) => !!mine(x) && !!other(x), 5_000, 'S') as AirP
+    console.log(`[air-aam] S starts ${d3(mine(first)!.pos, other(first)!.pos).toFixed(0)} m behind T`)
+    // Key 2 cycles the selected weapon; the HUD's third line names it.
+    for (let i = 0; i < 14; i++) {
+      const x = await waitForBeacon(sh, (q) => (q.hud ?? []).length > 2, 5_000, 'S hud')
+      const was = (x.hud ?? [])[2]
+      if (/AIM9 /.test(was)) break
+      await sh.keyboard.down('2'); await sh.waitForTimeout(80); await sh.keyboard.up('2')
+      await waitForBeacon(sh, (q) => (q.hud ?? [])[2] !== was, 1_500, 'weapon changes').catch(() => null)
+    }
+    const sel = await waitForBeacon(sh, () => true, 5_000, 'S')
+    console.log(`[air-aam] S selected ${JSON.stringify((sel.hud ?? []).slice(2, 3))}`)
+    await sh.waitForTimeout(1500) // let the seeker see the target
+    if (process.env.YSFX_SHOTS) await sh.screenshot({ path: `${process.env.YSFX_SHOTS}/air-aam-aim.png` })
+    const t0 = Date.now()
+    await sh.keyboard.down('Shift'); await sh.waitForTimeout(250); await sh.keyboard.up('Shift')
+    if (process.env.YSFX_SHOTS) { await sh.waitForTimeout(600); await sh.screenshot({ path: `${process.env.YSFX_SHOTS}/air-aam-s-flying.png` }); await t.screenshot({ path: `${process.env.YSFX_SHOTS}/air-aam-t-view.png` }) }
+    const down = await waitForBeacon(t, (x) => (x.panel?.log ?? []).some((l) => /Shot down by/.test(l)) || ((x as AirP).peer?.hitsIn ?? 0) > 0, 25_000, 'T hit').catch(() => null) as AirP | null
+    const xs = await waitForBeacon(sh, () => true, 5_000, 'S') as AirP, xt = await waitForBeacon(t, () => true, 5_000, 'T') as AirP
+    console.log(`[air-aam] ${down ? `T hit ${Date.now() - t0} ms after launch` : 'T NOT hit in 25 s'}: S reported ${xs.peer?.hitsOut}, T took ${xt.peer?.hitsIn}; T log ${JSON.stringify((xt.panel?.log ?? []).filter((l) => /Shot down/.test(l)))}; S weapon now ${JSON.stringify((xs.hud ?? []).slice(2, 3))}`)
+    if (down) await aftermath(t, sh, 'air-aam')
+    expect(down).toBeTruthy()
+  } finally { await close() }
+})
+
 test('for comparison, the way it is now (host + client over WebRTC): join time, and the host leaving', async ({ browser }) => {
   test.setTimeout(300_000)
   const room = String(10000000 + (Date.now() % 89999999))
