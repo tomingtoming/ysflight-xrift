@@ -197,8 +197,9 @@ const d3 = (p: number[], q: number[]) => Math.hypot(p[0] - q[0], p[1] - q[1], p[
 async function airPair(browser: import('@playwright/test').Browser, sky: string, gapMs: number) {
   const ctxT = await browser.newContext(); const t = await ctxT.newPage(); await watchBeacon(t)
   const ctxS = await browser.newContext(); const sh = await ctxS.newPage(); await watchBeacon(sh)
-  await t.goto(`http://localhost:5173/?ysfxpeer=${sky}:T`)
-  await sh.goto(`http://localhost:5173/?ysfxpeer=${sky}:S`)
+  const lag = process.env.YSFX_LAG ? `&ysfxlag=${process.env.YSFX_LAG}` : '' // e.g. 100:30 -- both tabs hold what they receive
+  await t.goto(`http://localhost:5173/?ysfxpeer=${sky}:T${lag}`)
+  await sh.goto(`http://localhost:5173/?ysfxpeer=${sky}:S${lag}`)
   await waitForBeacon(t, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, 'T lobby')
   await waitForBeacon(sh, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, 'S lobby')
   await t.evaluate(go, ['F-16C_FIGHTINGFALCON', 'NORTH10000_01'])
@@ -209,27 +210,45 @@ async function airPair(browser: import('@playwright/test').Browser, sky: string,
   await sh.mouse.click(640, 360)
   return { t, sh, close: async () => { await ctxS.close(); await ctxT.close() } }
 }
-/** How far behind the truth the shooter's picture of the target is, as time: sampled over a few seconds of flight. */
+/** Positions of one aircraft as a page's beacons report them (10 a second), for `ms`. */
+function series(page: import('@playwright/test').Page, player: boolean, ms: number): Promise<Array<{ t: number; pos: number[] }>> {
+  return page.evaluate(([pl, dur]) => new Promise<Array<{ t: number; pos: number[] }>>((done) => {
+    const out: Array<{ t: number; pos: number[] }> = []
+    const on = (e: Event) => {
+      const d = (e as CustomEvent).detail as { t: number; aircraft: Array<{ alive: boolean; player: boolean; pos: number[] }> }
+      const a = d.aircraft.find((q) => q.alive && q.player === pl)
+      if (a) out.push({ t: d.t, pos: a.pos })
+    }
+    window.addEventListener('ysfx-state', on)
+    setTimeout(() => { window.removeEventListener('ysfx-state', on); done(out) }, dur as number)
+  }), [player, ms] as const)
+}
+/**
+ * How far behind the truth the shooter's picture of the target is (as time),
+ * and how evenly the picture moves: both pages' beacons over three seconds.
+ */
 async function pictureLag(t: import('@playwright/test').Page, sh: import('@playwright/test').Page, tag: string) {
+  const [truth, seen] = await Promise.all([series(t, true, 3000), series(sh, false, 3000)])
   const lags: number[] = []
   let spd = 0
-  for (let i = 0; i < 12; i++) {
-    await sh.waitForTimeout(250)
-    const a = await waitForBeacon(t, (x) => !!mine(x), 5_000, 'T')
-    const v = await waitForBeacon(sh, (x) => !!other(x) && x.t > a.t, 5_000, 'S')
-    const b = await waitForBeacon(t, (x) => !!mine(x) && x.t > v.t, 5_000, 'T')
-    // T's own position at the time of S's beacon, from the two T beacons around it (or the nearer one).
-    const p1 = mine(a)!.pos, p2 = mine(b)!.pos
-    if (b.t > a.t) spd = d3(p1, p2) / ((b.t - a.t) / 1000)
-    if (!spd) continue
-    const seen = other(v)!.pos
-    const dir = b.t > a.t ? [0, 1, 2].map((k) => (p2[k] - p1[k]) / d3(p1, p2)) : null
-    if (!dir) continue
-    const along = [0, 1, 2].reduce((acc, k) => acc + (p2[k] - seen[k]) * dir[k], 0) // metres the picture is behind T's newest
-    lags.push(along / spd * 1000 - (b.t - v.t))
+  for (const sm of seen) {
+    const k = truth.findIndex((q) => q.t >= sm.t)
+    if (k < 1) continue
+    const a = truth[k - 1], b = truth[k]
+    const f = (sm.t - a.t) / (b.t - a.t)
+    const at = [0, 1, 2].map((n) => a.pos[n] + (b.pos[n] - a.pos[n]) * f) // where T really was when S looked
+    spd = d3(a.pos, b.pos) / ((b.t - a.t) / 1000)
+    const dir = [0, 1, 2].map((n) => (b.pos[n] - a.pos[n]) / d3(a.pos, b.pos))
+    lags.push([0, 1, 2].reduce((acc, n) => acc + (at[n] - sm.pos[n]) * dir[n], 0) / spd * 1000)
   }
+  const v: number[] = []
+  for (let n = 1; n < seen.length; n++) v.push(d3(seen[n].pos, seen[n - 1].pos) / ((seen[n].t - seen[n - 1].t) / 1000))
+  const tv: number[] = []
+  for (let n = 1; n < truth.length; n++) tv.push(d3(truth[n].pos, truth[n - 1].pos) / ((truth[n].t - truth[n - 1].t) / 1000))
+  const stat = (x: number[]) => { const m = x.reduce((p, q) => p + q, 0) / x.length; return `mean ${m.toFixed(0)} sd ${Math.sqrt(x.reduce((p, q) => p + (q - m) ** 2, 0) / x.length).toFixed(1)} min ${Math.min(...x).toFixed(0)} max ${Math.max(...x).toFixed(0)}` }
   lags.sort((x, y) => x - y)
   console.log(`[${tag}] T flies ${spd.toFixed(0)} m/s; S's picture of T is behind by (ms, ${lags.length} samples) median ${lags[lags.length >> 1]?.toFixed(0)}, min ${lags[0]?.toFixed(0)}, max ${lags[lags.length - 1]?.toFixed(0)}`)
+  console.log(`[${tag}] speed between beacons (m/s): the picture on S ${stat(v)} | the real one on T ${stat(tv)}`)
 }
 /** After the target is hit for good: what its owner sees of it and what the shooter sees of it, side by side. */
 async function aftermath(t: import('@playwright/test').Page, sh: import('@playwright/test').Page, tag: string) {
@@ -279,6 +298,7 @@ test('in the air: a missile from behind', async ({ browser }) => {
   try {
     const first = await waitForBeacon(sh, (x) => !!mine(x) && !!other(x), 5_000, 'S') as AirP
     console.log(`[air-aam] S starts ${d3(mine(first)!.pos, other(first)!.pos).toFixed(0)} m behind T`)
+    await pictureLag(t, sh, 'air-aam')
     // Key 2 cycles the selected weapon; the HUD's third line names it.
     for (let i = 0; i < 14; i++) {
       const x = await waitForBeacon(sh, (q) => (q.hud ?? []).length > 2, 5_000, 'S hud')

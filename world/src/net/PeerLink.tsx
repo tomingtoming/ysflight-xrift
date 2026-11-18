@@ -25,6 +25,11 @@ export const peerStatus = { room: null as string | null, open: false, sent: 0, g
 /** Dev aid: ?ysfxnohit=1 throws away the hits aimed at this tab, to tell what its own engine does with the shooter's rounds. */
 const DROP_HITS = import.meta.env.DEV && typeof location !== 'undefined' && /[?&]ysfxnohit=1/.test(location.search)
 
+/** Dev aid: ?ysfxlag=<ms>[:<jitter ms>] holds every received message that long (order kept), to stand in for a real network. */
+const LAG = (() => {
+  const q = import.meta.env.DEV && typeof location !== 'undefined' ? /[?&]ysfxlag=(\d+)(?::(\d+))?/.exec(location.search) : null
+  return q ? { ms: Number(q[1]), jitter: Number(q[2] ?? 0) } : null
+})()
 const age = (a: { n: number; sum: number; max: number }, ms: number) => { a.n++; a.sum += ms; if (ms > a.max) a.max = ms }
 const b64 = (u: Uint8Array): string => { let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s) }
 const unb64 = (s: string): Uint8Array => { const r = atob(s); const u = new Uint8Array(r.length); for (let i = 0; i < r.length; i++) u[i] = r.charCodeAt(i); return u }
@@ -49,7 +54,8 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
       sock = new WebSocket(`${relayUrl}?room=${encodeURIComponent(room)}&k=${encodeURIComponent(key)}`)
       ws.current = sock
       sock.onopen = () => { peerStatus.open = true }
-      sock.onmessage = (ev) => {
+      let lastDue = 0
+      const receive = (ev: { data: unknown }) => {
         let m: { t?: string; k?: string; g?: number; i?: string; n?: string; d?: string; v?: string; p?: number; o?: number; ts?: number }
         try { m = JSON.parse(ev.data as string) } catch { return }
         if (!m.k || m.k === key) return
@@ -70,6 +76,13 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
           for (const k of seen.current.keys()) if (k === m.k) { mod.ccall('FsVrPeerRemove', null, ['string'], [k]); seen.current.delete(k) }
         }
       }
+      sock.onmessage = LAG
+        ? (ev) => {
+            const due = Math.max(lastDue, performance.now() + LAG.ms + (Math.random() * 2 - 1) * LAG.jitter)
+            lastDue = due
+            setTimeout(() => { if (!closed) receive(ev) }, due - performance.now())
+          }
+        : receive
       sock.onclose = () => {
         peerStatus.open = false
         drop() // nothing more will come: do not leave the others frozen in the sky
