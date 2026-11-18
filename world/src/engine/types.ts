@@ -25,6 +25,9 @@ export interface YsflightModule {
   /** Heap gauge (fsvr.h): [heap MB, malloc'd MB, free MB, samples]; absent in engine binaries built before it. */
   _FsVrMemDataPointer?: () => number
   _FsVrMemSample?: () => void
+  /** Trial "peer sky" (net/PeerLink.tsx): absent in engines built before it. */
+  _FsVrPeerOwnStatePointer?: () => number
+  _FsVrPeerCount?: () => number
   // fsvr.h network-lobby automation (ysflight-xrift fork)
   _FsVrNetRequestLeave: () => void
   _FsVrNetStateDataPointer: () => number

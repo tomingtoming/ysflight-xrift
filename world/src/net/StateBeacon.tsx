@@ -30,6 +30,7 @@ import { voiceStatus } from './VoiceForAll'
 import { isCoarsePointer } from './TouchConsole'
 import { readCarried, readLoadout, type Carried, type Loadout } from './loadout'
 import { connectStatus, type ConnectStatus } from './roleStore'
+import { peerStatus } from './PeerLink'
 import { shadowStats } from '../engine/glShadow'
 import { gaugeFlight, gaugeLines, gaugeNow, gaugeProbe, type GaugeFlight, type GaugeNow } from './gauges'
 
@@ -83,6 +84,10 @@ export interface YsfxBeacon {
   /** The engine's main-window view mode (FSCOCKPITVIEW = 0). */
   view?: number
   engine?: string | null
+  /** Trial "peer sky" link (net/PeerLink.tsx). */
+  peer?: { room: string | null; open: boolean; sent: number; got: number; peers: number; firstGotAt: number }
+  /** Engine steps so far: tells a running engine from a stopped one. */
+  steps?: number
   /** SaccFlight-style hand controls (vr/saccControls.ts) while presenting and seated. */
   vr: typeof saccStatus
   /** Seat eye calibration: measured hip-to-eye and the residual after applying it (seatEye.ts). */
@@ -239,6 +244,8 @@ export function StateBeacon({ role, room, field, election }: { role: NetRole | n
       detail.ctl = Array.from(f.subarray(c, c + 12))
       detail.ctlOwner = controlBus.owner()
       detail.engine = engineBuildId()
+      detail.peer = { ...peerStatus }
+      detail.steps = ysfxStats.steps
       detail.loadout = { editor: readLoadout(mod), carried: readCarried(mod) }
       detail.view = f[(mod._FsVrExternalViewDataPointer() >> 2) + 3]
       const n = airCount(mod)

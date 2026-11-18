@@ -79,6 +79,15 @@ export default {
       const id = env.SIGNAL.idFromName('hub'); // single global signaling hub
       return env.SIGNAL.get(id).fetch(request);
     }
+    if (url.pathname === '/relay') {
+      // Trial "peer sky": one relay per room, every message goes to the others.
+      if (request.headers.get('Upgrade') !== 'websocket') {
+        return new Response('expected WebSocket Upgrade', { status: 426 });
+      }
+      const room = (url.searchParams.get('room') || '').slice(0, 64);
+      if (!/^[A-Za-z0-9_-]+$/.test(room)) return new Response('room?', { status: 400 });
+      return env.RELAY.get(env.RELAY.idFromName(room)).fetch(request);
+    }
     if (url.pathname === '/turn') {
       return turnCredentials(request, env);
     }
@@ -721,5 +730,38 @@ export class SignalHub {
       secs: this.roomAge(r),
       reason: 'grace-expired', site: r.site, cc: r.cc, aud: r.aud
     });
+  }
+}
+
+// Trial "peer sky" (no server role between browsers): a room is a set of
+// sockets, and whatever one sends goes to all the others unchanged.  The relay
+// keeps nothing and understands nothing but who left: each socket names itself
+// in the URL (?k=), and its close is announced as {t:'bye',k}.  States are
+// self-contained on the sender's side, so a late joiner needs nothing from here.
+export class RelayRoom {
+  constructor() {
+    this.socks = new Map(); // WebSocket -> key
+  }
+
+  async fetch(request) {
+    const k = (new URL(request.url).searchParams.get('k') || '').slice(0, 96);
+    const pair = new WebSocketPair();
+    const server = pair[1];
+    server.accept();
+    this.socks.set(server, k);
+    const gone = () => {
+      if (!this.socks.delete(server)) return;
+      const bye = JSON.stringify({ t: 'bye', k });
+      for (const s of this.socks.keys()) { try { s.send(bye); } catch (e) {} }
+    };
+    server.addEventListener('message', (ev) => {
+      if (typeof ev.data !== 'string' || ev.data.length > 2048) return;
+      for (const s of this.socks.keys()) {
+        if (s !== server) { try { s.send(ev.data); } catch (e) {} }
+      }
+    });
+    server.addEventListener('close', gone);
+    server.addEventListener('error', gone);
+    return new Response(null, { status: 101, webSocket: pair[0] });
   }
 }

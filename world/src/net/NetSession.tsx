@@ -20,6 +20,7 @@ import { ysfxStats } from '../engine/YsflightEngine'
 import { isCoarsePointer } from './TouchConsole'
 import { StateBeacon } from './StateBeacon'
 import { setConnectStatus, setSessionRole } from './roleStore'
+import { PeerLink } from './PeerLink'
 
 export interface NetSessionState {
   hostId: string | null
@@ -182,7 +183,15 @@ export function NetSession({ children }: NetSessionProps) {
   let role: NetRole | null = null
   let room = net.room
   const forced = import.meta.env.DEV ? /[?&]ysfxnet=(host|client):(\d{8})/.exec(location.search) : null
-  if (forced) {
+  // Trial "peer sky": ?ysfxpeer=<sky>[:<name suffix>] boots this tab's engine
+  // alone (its own -server, a private signaling room nobody joins) and links
+  // it to the others through the relay room <sky> (net/PeerLink.tsx).
+  const peer = import.meta.env.DEV ? /[?&]ysfxpeer=([A-Za-z0-9_-]+)(?::([A-Za-z0-9]+))?/.exec(location.search) : null
+  const peerRoom = useMemo(makeRoom, [])
+  if (peer) {
+    role = 'host'
+    room = peerRoom
+  } else if (forced) {
     role = forced[1] as NetRole
     room = forced[2]
   } else if (net.hostId && net.room) {
@@ -223,6 +232,7 @@ export function NetSession({ children }: NetSessionProps) {
   return (
     <>
       {engine}
+      {peer ? <PeerLink relayUrl={SIGNAL_URL.replace(/\/signal$/, '/relay')} room={peer[1]} pilotName={pilotName} /> : null}
       {role === 'client' && !failed ? <ClientWatchdog onStall={onStall} stallS={stallS} /> : null}
       {role === 'client' ? <IdleWatch idleSince={idleSince} /> : null}
       <StateBeacon role={role} room={room} field={field} election={{ cls: myClass, hostId: net.hostId, hostClass: net.hostClass, beat: net.beat }} />

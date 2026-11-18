@@ -101,9 +101,11 @@ export function requestLeave(m: YsflightModule): void {
  * so every client can map an aircraft (the sim carries the pilot name) back
  * to the XRift user flying it without any extra sync channel.
  */
+// Trial "peer sky": two dev tabs are the same user, ?ysfxpeer=<sky>:<suffix> tells them apart.
+const DEV_SUFFIX = (import.meta.env.DEV && typeof location !== 'undefined' ? /[?&]ysfxpeer=[A-Za-z0-9_-]+:([A-Za-z0-9]+)/.exec(location.search)?.[1] : '') ?? ''
 export function pilotNameOf(user: { id: string; displayName: string }): string {
   const base = user.displayName.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 12) || 'pilot'
-  return `${base}_${user.id.replace(/[^A-Za-z0-9]/g, '').slice(0, 6)}`
+  return `${base}_${user.id.replace(/[^A-Za-z0-9]/g, '').slice(0, 6)}${DEV_SUFFIX}`
 }
 
 /** Aircraft templates offered by the lobby (identifiers for requestJoin). */

@@ -12,10 +12,12 @@
   "observability": { "enabled": true },
   "durable_objects": {
     "bindings": [
-      { "name": "SIGNAL", "class_name": "SignalHub" }
+      { "name": "SIGNAL", "class_name": "SignalHub" },
+      { "name": "RELAY", "class_name": "RelayRoom" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["SignalHub"] }
+    { "tag": "v1", "new_sqlite_classes": ["SignalHub"] },
+    { "tag": "v2", "new_sqlite_classes": ["RelayRoom"] }
   ]
 }
