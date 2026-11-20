@@ -734,30 +734,41 @@ export class SignalHub {
 }
 
 // Trial "peer sky" (no server role between browsers): a room is a set of
-// sockets, and whatever one sends goes to all the others unchanged.  The relay
-// keeps nothing and understands nothing but who left: each socket names itself
-// in the URL (?k=), and its close is announced as {t:'bye',k}.  States are
-// self-contained on the sender's side, so a late joiner needs nothing from here.
+// sockets, and whatever one sends goes to all the others with the sender's
+// number (u16, little-endian) in front.  The relay keeps nothing and
+// understands nothing of what it carries; it only numbers the sockets and says
+// who left.  Its own frames have sender 0:
+//   00 00 | 01 | number u16   to a socket on connect: its own number
+//   00 00 | 02 | number u16   to the others when a socket closes
+// States are self-contained on the sender's side, so a late joiner needs
+// nothing from here.
 export class RelayRoom {
   constructor() {
-    this.socks = new Map(); // WebSocket -> key
+    this.socks = new Map(); // WebSocket -> number
+    this.next = 1;
   }
 
   async fetch(request) {
-    const k = (new URL(request.url).searchParams.get('k') || '').slice(0, 96);
     const pair = new WebSocketPair();
     const server = pair[1];
     server.accept();
-    this.socks.set(server, k);
+    const id = this.next;
+    this.next = this.next >= 65535 ? 1 : this.next + 1;
+    this.socks.set(server, id);
+    const ctl = (kind) => new Uint8Array([0, 0, kind, id & 255, id >> 8]);
+    try { server.send(ctl(1)); } catch (e) {}
     const gone = () => {
       if (!this.socks.delete(server)) return;
-      const bye = JSON.stringify({ t: 'bye', k });
+      const bye = ctl(2);
       for (const s of this.socks.keys()) { try { s.send(bye); } catch (e) {} }
     };
     server.addEventListener('message', (ev) => {
-      if (typeof ev.data !== 'string' || ev.data.length > 2048) return;
+      if (typeof ev.data === 'string' || ev.data.byteLength > 1024) return;
+      const out = new Uint8Array(2 + ev.data.byteLength);
+      out[0] = id & 255; out[1] = id >> 8;
+      out.set(new Uint8Array(ev.data), 2);
       for (const s of this.socks.keys()) {
-        if (s !== server) { try { s.send(ev.data); } catch (e) {} }
+        if (s !== server) { try { s.send(out); } catch (e) {} }
       }
     });
     server.addEventListener('close', gone);

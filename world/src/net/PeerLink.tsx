@@ -2,134 +2,152 @@
  * PeerLink — trial "peer sky": no server role between browsers.
  *
  * Every browser runs the engine alone (its own -server loop, nobody
- * connected).  Ten times a second this sends the state of the local player's
- * aircraft to a relay room and hands the engine whatever the others sent
- * (fork: FsVrPeerPushState / FsVrPeerOwnStatePointer).  A message carries the
- * aircraft type and pilot name with the state, so whoever arrives late makes
- * the aircraft from the first message it hears; nobody keeps a roster.
+ * connected).  This sends the state of the local player's aircraft to the
+ * others and hands the engine whatever they sent (fork: FsVrPeerPushState /
+ * FsVrPeerOwnStatePointer).  Nobody keeps a roster: an aircraft's type and
+ * pilot name go out once a second, and whoever arrives late makes the aircraft
+ * when it has heard both that and a state.
  *
- * An aircraft goes away on the others when its owner says so ('x': landed
- * out, crashed, left the seat), when the relay reports the socket closed
- * ('bye'), or when nothing has come for SILENT_MS.
+ * How often: ten states a second while the aircraft moves or fires, one a
+ * second while it stands still.  How big, and the carrier: peerWire.ts,
+ * peerRelay.ts.
+ *
+ * An aircraft goes away on the others when its owner says so (GONE: landed
+ * out, crashed, left the seat), when the carrier reports the sender left, or
+ * when nothing has come for SILENT_MS.
  */
 import { useFrame } from '@react-three/fiber'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useEngine } from '../engine/engineStore'
+import { openRelay, type PeerCarrier } from './peerRelay'
+import { MSG_GONE, MSG_HIT, MSG_IDENT, MSG_STATE, decodeHit, decodeIdent, decodeState, encodeHit, encodeIdent, encodeState } from './peerWire'
 
 const SEND_MS = 100
-const SILENT_MS = 3000
+const QUIET_MS = 1000
+const IDENT_MS = 1000
+const SILENT_MS = 3500
 
 /** What the test beacon reports about the link. */
-export const peerStatus = { room: null as string | null, open: false, sent: 0, got: 0, peers: 0, firstGotAt: 0, hitsOut: 0, hitsIn: 0, hitsDropped: 0, /** Age of what arrives, by the sender's clock (ms; meaningful when both tabs share a clock): states and hits. */ stateAge: { n: 0, sum: 0, max: 0 }, hitAge: { n: 0, sum: 0, max: 0 } }
+export const peerStatus = {
+  room: null as string | null, open: false, self: 0, sent: 0, got: 0, peers: 0, firstGotAt: 0, hitsOut: 0, hitsIn: 0, hitsDropped: 0,
+  /** Everything this tab has sent: messages and bytes (payload, without the carrier's framing), by kind. */
+  out: { states: 0, stateBytes: 0, idents: 0, identBytes: 0, others: 0, otherBytes: 0 },
+}
 
 /** Dev aid: ?ysfxnohit=1 throws away the hits aimed at this tab, to tell what its own engine does with the shooter's rounds. */
 const DROP_HITS = import.meta.env.DEV && typeof location !== 'undefined' && /[?&]ysfxnohit=1/.test(location.search)
-
-/** Dev aid: ?ysfxlag=<ms>[:<jitter ms>] holds every received message that long (order kept), to stand in for a real network. */
+/** Dev aid: ?ysfxlag=<ms>[:<jitter ms>] holds every received message that long (order kept). */
 const LAG = (() => {
   const q = import.meta.env.DEV && typeof location !== 'undefined' ? /[?&]ysfxlag=(\d+)(?::(\d+))?/.exec(location.search) : null
   return q ? { ms: Number(q[1]), jitter: Number(q[2] ?? 0) } : null
 })()
-const age = (a: { n: number; sum: number; max: number }, ms: number) => { a.n++; a.sum += ms; if (ms > a.max) a.max = ms }
-const b64 = (u: Uint8Array): string => { let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s) }
-const unb64 = (s: string): Uint8Array => { const r = atob(s); const u = new Uint8Array(r.length); for (let i = 0; i < r.length; i++) u[i] = r.charCodeAt(i); return u }
+
+interface Remote { gen: number; ident: string; name: string; at: number }
 
 export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room: string; pilotName: string }) {
   const mod = useEngine()
-  // One key per engine boot: a restarted engine's clock starts over, and the
-  // others must take what it sends as a new aircraft, not as stale states.
-  const key = useMemo(() => `${pilotName}.${Math.random().toString(36).slice(2, 10)}`, [pilotName, mod]) // eslint-disable-line react-hooks/exhaustive-deps
-  const ws = useRef<WebSocket | null>(null)
-  const seen = useRef(new Map<string, number>())
-  const acc = useRef(0)
+  const carrier = useRef<PeerCarrier | null>(null)
+  /** Senders heard from: who flies what (from IDENT), and when a state last came. */
+  const remotes = useRef(new Map<number, Remote>())
+  const self = useRef(0)
+  const sendAcc = useRef(SEND_MS)
+  const lastState = useRef(0)
+  const lastIdent = useRef({ at: 0, gen: -1 })
   const out = useRef(false)
 
   useEffect(() => {
     if (!mod || !mod._FsVrPeerOwnStatePointer) return
-    let closed = false
-    let sock: WebSocket | null = null
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const drop = () => { for (const k of seen.current.keys()) mod.ccall('FsVrPeerRemove', null, ['string'], [k]); seen.current.clear() }
-    const connect = () => {
-      sock = new WebSocket(`${relayUrl}?room=${encodeURIComponent(room)}&k=${encodeURIComponent(key)}`)
-      ws.current = sock
-      sock.onopen = () => { peerStatus.open = true }
-      let lastDue = 0
-      const receive = (ev: { data: unknown }) => {
-        let m: { t?: string; k?: string; g?: number; i?: string; n?: string; d?: string; v?: string; p?: number; o?: number; ts?: number }
-        try { m = JSON.parse(ev.data as string) } catch { return }
-        if (!m.k || m.k === key) return
-        if (m.t === 's' && m.i && m.n && m.d) {
-          const d = unb64(m.d)
-          mod.ccall('FsVrPeerPushState', null, ['string', 'number', 'string', 'string', 'array', 'number'], [m.k, m.g ?? 0, m.i, m.n, d, d.length])
-          seen.current.set(m.k, performance.now())
-          if (m.ts) age(peerStatus.stateAge, Date.now() - m.ts)
-          if (peerStatus.got++ === 0) peerStatus.firstGotAt = performance.now()
-        } else if (m.t === 'd' && m.v === key) {
+    const forget = (sender: number) => {
+      if (remotes.current.delete(sender)) mod.ccall('FsVrPeerRemove', null, ['string'], [String(sender)])
+    }
+    // One connection per engine boot: a restarted engine's clock starts over,
+    // and the others must take what it sends as a new sender, not as stale states.
+    const c = openRelay(relayUrl, room, {
+      onOpen: (n) => { self.current = n; peerStatus.self = n; peerStatus.open = true; lastIdent.current = { at: 0, gen: -1 } },
+      onLeft: forget,
+      onDown: () => {
+        peerStatus.open = false
+        for (const s of [...remotes.current.keys()]) forget(s) // nothing more will come: do not leave the others frozen in the sky
+      },
+      onMessage: (sender, msg) => {
+        if (msg.length === 0) return
+        const now = performance.now()
+        if (msg[0] === MSG_IDENT) {
+          const d = decodeIdent(msg)
+          if (d) remotes.current.set(sender, { ...d, at: remotes.current.get(sender)?.at ?? now })
+        } else if (msg[0] === MSG_STATE) {
+          const d = decodeState(msg)
+          const r = remotes.current.get(sender)
+          if (!d || !r || r.gen !== d.gen) return // its type and name have not come yet (at most a second)
+          mod.ccall('FsVrPeerPushState', null, ['string', 'number', 'string', 'string', 'array', 'number'], [String(sender), d.gen, r.ident, r.name, d.packet, d.packet.length])
+          r.at = now
+          if (peerStatus.got++ === 0) peerStatus.firstGotAt = now
+        } else if (msg[0] === MSG_GONE) {
+          forget(sender)
+        } else if (msg[0] === MSG_HIT) {
+          const d = decodeHit(msg)
+          if (!d || d.victim !== self.current) return
           if (DROP_HITS) { peerStatus.hitsDropped++; return }
           // A hit someone else's weapons scored on this browser's aircraft: the engine here decides what it does.
-          mod.ccall('FsVrPeerPushHit', null, ['string', 'number', 'number', 'number'], [m.n ?? '', m.p ?? 0, m.o ?? 0, m.g ?? -1])
+          mod.ccall('FsVrPeerPushHit', null, ['string', 'number', 'number', 'number'], [remotes.current.get(sender)?.name ?? '', d.power, d.diedOf, d.gen])
           peerStatus.hitsIn++
-          if (m.ts) age(peerStatus.hitAge, Date.now() - m.ts)
-        } else if (m.t === 'x' || m.t === 'bye') {
-          // 'bye' names a socket; its aircraft keys are the ones it sent under.
-          for (const k of seen.current.keys()) if (k === m.k) { mod.ccall('FsVrPeerRemove', null, ['string'], [k]); seen.current.delete(k) }
         }
-      }
-      sock.onmessage = LAG
-        ? (ev) => {
-            const due = Math.max(lastDue, performance.now() + LAG.ms + (Math.random() * 2 - 1) * LAG.jitter)
-            lastDue = due
-            setTimeout(() => { if (!closed) receive(ev) }, due - performance.now())
-          }
-        : receive
-      sock.onclose = () => {
-        peerStatus.open = false
-        drop() // nothing more will come: do not leave the others frozen in the sky
-        if (!closed) timer = setTimeout(connect, 2000)
-      }
-    }
+      },
+    }, LAG)
+    carrier.current = c
     peerStatus.room = room
-    connect()
     return () => {
-      closed = true
-      if (timer) clearTimeout(timer)
-      sock?.close()
-      ws.current = null
+      c.close()
+      carrier.current = null
       peerStatus.open = false
       peerStatus.room = null
     }
-  }, [mod, relayUrl, room, key])
+  }, [mod, relayUrl, room])
 
   useFrame((_s, dt) => {
-    if (!mod || !mod._FsVrPeerOwnStatePointer) return
+    const c = carrier.current
+    if (!mod || !mod._FsVrPeerOwnStatePointer || !c || !peerStatus.open) return
+    const o = peerStatus.out
     // Hits go out the frame they happen (they are events, not states).
-    const live = ws.current
-    if (live && live.readyState === WebSocket.OPEN && mod._FsVrPeerTakeHit) {
+    if (mod._FsVrPeerTakeHit) {
       for (let h = mod._FsVrPeerTakeHit(), n = 0; h !== 0 && n < 64; h = mod._FsVrPeerTakeHit(), n++) {
         const dv = new DataView(mod.HEAPU8.buffer)
-        live.send(JSON.stringify({ t: 'd', k: key, v: mod.UTF8ToString(h + 12), p: dv.getInt32(h, true), o: dv.getInt32(h + 4, true), g: dv.getInt32(h + 8, true), n: pilotName, ts: Date.now() }))
+        const m = encodeHit(Number(mod.UTF8ToString(h + 12)), dv.getInt32(h + 8, true), dv.getInt32(h, true), dv.getInt32(h + 4, true))
+        c.send(m)
+        o.others++; o.otherBytes += m.length
         peerStatus.hitsOut++
       }
     }
-    acc.current += dt * 1000
-    if (acc.current < SEND_MS) return
-    acc.current = 0
+    sendAcc.current += dt * 1000
+    if (sendAcc.current < SEND_MS) return
+    sendAcc.current = 0
     const now = performance.now()
-    for (const [k, t] of seen.current) if (now - t > SILENT_MS) { mod.ccall('FsVrPeerRemove', null, ['string'], [k]); seen.current.delete(k) }
+    for (const [s, r] of [...remotes.current]) if (now - r.at > SILENT_MS) { remotes.current.delete(s); mod.ccall('FsVrPeerRemove', null, ['string'], [String(s)]) }
     peerStatus.peers = mod._FsVrPeerCount?.() ?? 0
-    const sock = ws.current
-    if (!sock || sock.readyState !== WebSocket.OPEN) return
     const p = mod._FsVrPeerOwnStatePointer()
     const view = new DataView(mod.HEAPU8.buffer)
     const len = view.getInt32(p, true)
     if (len > 0) {
-      const g = view.getInt32(p + 4, true)
-      sock.send(JSON.stringify({ t: 's', k: key, g, i: mod.UTF8ToString(p + 8), n: pilotName, d: b64(mod.HEAPU8.subarray(p + 72, p + 72 + len)), ts: Date.now() }))
-      peerStatus.sent++
+      const gen = view.getInt32(p + 4, true)
+      const quiet = view.getInt32(p + 8, true) !== 0
+      if (gen !== lastIdent.current.gen || now - lastIdent.current.at >= IDENT_MS) {
+        const m = encodeIdent(gen, mod.UTF8ToString(p + 12), pilotName)
+        c.send(m)
+        o.idents++; o.identBytes += m.length
+        lastIdent.current = { at: now, gen }
+      }
+      if (!quiet || !out.current || now - lastState.current >= QUIET_MS) {
+        const m = encodeState(gen, mod.HEAPU8.subarray(p + 76, p + 76 + len))
+        c.send(m)
+        o.states++; o.stateBytes += m.length
+        peerStatus.sent++
+        lastState.current = now
+      }
       out.current = true
     } else if (out.current) {
-      sock.send(JSON.stringify({ t: 'x', k: key }))
+      const m = new Uint8Array([MSG_GONE])
+      c.send(m)
+      o.others++; o.otherBytes += 1
       out.current = false
     }
   })

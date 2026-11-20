@@ -13,7 +13,14 @@
 import { expect, test } from '@playwright/test'
 import { NET_FLYING, waitForBeacon, watchBeacon, type Beacon } from './helpers'
 
-type B = Beacon & { peer?: { open: boolean; sent: number; got: number; peers: number }; steps?: number; engine?: string | null }
+type Out = { states: number; stateBytes: number; idents: number; identBytes: number; others: number; otherBytes: number }
+type B = Beacon & { peer?: { open: boolean; sent: number; got: number; peers: number; out: Out }; steps?: number; engine?: string | null }
+/** What a tab sent between two of its beacons: messages a second and bytes, by kind. */
+const rate = (a: B, b: B) => {
+  const s = (b.t - a.t) / 1000, x = a.peer!.out, y = b.peer!.out
+  const st = y.states - x.states, id = y.idents - x.idents
+  return `${(st / s).toFixed(1)} states/s of ${st ? ((y.stateBytes - x.stateBytes) / st).toFixed(0) : '-'} bytes, ${(id / s).toFixed(1)} idents/s of ${id ? ((y.identBytes - x.identBytes) / id).toFixed(0) : '-'} bytes = ${(((y.stateBytes - x.stateBytes) + (y.identBytes - x.identBytes) + (y.otherBytes - x.otherBytes)) / s).toFixed(0)} bytes/s`
+}
 const go = ([a, s]: string[]) => (window as unknown as { __ysfxLobbyStart: (a: string, s: string) => void }).__ysfxLobbyStart(a, s)
 const other = (b: Beacon) => b.aircraft.find((a) => a.alive && !a.player)
 const mine = (b: Beacon) => b.aircraft.find((a) => a.alive && a.player)
@@ -54,7 +61,13 @@ test('two engines, no server between them: see each other, survive the first one
     expect(d).toBeLessThan(5)
 
     if (process.env.YSFX_SHOTS) { await a.screenshot({ path: `${process.env.YSFX_SHOTS}/a-sees-b.png` }); await b.screenshot({ path: `${process.env.YSFX_SHOTS}/b-sees-a.png` }) }
+    // Both stand still: how much does a parked aircraft send?
+    const a0 = await waitForBeacon(a, () => true, 5_000, 'A') as B
+    await a.waitForTimeout(5000)
+    const a1 = await waitForBeacon(a, (x) => x.t > a0.t + 4000, 5_000, 'A') as B
+    console.log(`[local-peer] parked, A sends ${rate(a0, a1)}; B still sees A: ${!!other(await waitForBeacon(b, () => true, 5_000, 'B'))}`)
     // B rolls down the runway at full throttle: does A's picture of B keep up?
+    const b0 = await waitForBeacon(b, () => true, 5_000, 'B') as B
     await b.mouse.click(640, 360)
     for (let i = 0; i < 20; i++) await b.keyboard.press('q')
     const start = bOwn.pos
@@ -70,6 +83,7 @@ test('two engines, no server between them: see each other, survive the first one
       console.log(`[local-peer] roll +${i + 1}s: B moved ${moved.toFixed(0)} m, alt ${own[1].toFixed(0)} m; A's picture is ${gap.toFixed(1)} m off (beacons ${(v.t - o2.t)} ms apart, B speed ~${spd.toFixed(0)} m/s)`)
     }
     console.log(`[local-peer] worst gap while moving ${worst.toFixed(1)} m`)
+    console.log(`[local-peer] rolling, B sends ${rate(b0, await waitForBeacon(b, () => true, 5_000, 'B') as B)}`)
 
     // The first one leaves.  Nobody was the server, so nothing else should happen to B.
     const before = await waitForBeacon(b, () => true, 5_000, 'B before') as B
@@ -190,7 +204,7 @@ test('control: with the hit messages thrown away, what do the shooter\'s rounds 
 // In the air: the target starts at 10,000 ft, the shooter starts from the same
 // place a few seconds later -- same aircraft, no input, so it flies the same path
 // behind it with the target dead ahead.
-type AirP = B & { peer?: { hitsOut: number; hitsIn: number; stateAge: { n: number; sum: number; max: number }; hitAge: { n: number; sum: number; max: number } } }
+type AirP = B & { peer?: { hitsOut: number; hitsIn: number } }
 const own = (x: Beacon) => x.aircraft.find((q) => q.player)
 const copy = (x: Beacon) => x.aircraft.find((q) => !q.player)
 const d3 = (p: number[], q: number[]) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
@@ -285,7 +299,7 @@ test('in the air: guns from behind', async ({ browser }) => {
     }
     await sh.keyboard.up('Shift')
     const xs = await waitForBeacon(sh, () => true, 5_000, 'S') as AirP, xt = await waitForBeacon(t, () => true, 5_000, 'T') as AirP
-    console.log(`[air-gun] ${down ? 'hits reached T' : 'no hit reached T'} (T ${mine(xt) ? 'still flying' : 'no longer flying'}, shot down by the gun: ${(xt.panel?.log ?? []).some((l) => /Shot down by/.test(l))}): S reported ${xs.peer?.hitsOut}, T took ${xt.peer?.hitsIn}; hit age at T (ms) avg ${(xt.peer!.hitAge.sum / Math.max(1, xt.peer!.hitAge.n)).toFixed(1)} max ${xt.peer!.hitAge.max}; state age at S avg ${(xs.peer!.stateAge.sum / Math.max(1, xs.peer!.stateAge.n)).toFixed(1)} max ${xs.peer!.stateAge.max}; S gun ${JSON.stringify((xs.hud ?? []).slice(2, 3))}`)
+    console.log(`[air-gun] ${down ? 'hits reached T' : 'no hit reached T'} (T ${mine(xt) ? 'still flying' : 'no longer flying'}, shot down by the gun: ${(xt.panel?.log ?? []).some((l) => /Shot down by/.test(l))}): S reported ${xs.peer?.hitsOut}, T took ${xt.peer?.hitsIn}; S gun ${JSON.stringify((xs.hud ?? []).slice(2, 3))}`)
     if (process.env.YSFX_SHOTS) await sh.screenshot({ path: `${process.env.YSFX_SHOTS}/air-gun-after.png` })
     expect(down).toBeTruthy()
     expect(xt.peer?.hitsIn).toBe(xs.peer?.hitsOut)
