@@ -21,7 +21,7 @@ const rate = (a: B, b: B) => {
   const st = y.states - x.states, id = y.idents - x.idents
   return `${(st / s).toFixed(1)} states/s of ${st ? ((y.stateBytes - x.stateBytes) / st).toFixed(0) : '-'} bytes, ${(id / s).toFixed(1)} idents/s of ${id ? ((y.identBytes - x.identBytes) / id).toFixed(0) : '-'} bytes = ${(((y.stateBytes - x.stateBytes) + (y.identBytes - x.identBytes) + (y.otherBytes - x.otherBytes)) / s).toFixed(0)} bytes/s`
 }
-const go = ([a, s]: string[]) => (window as unknown as { __ysfxLobbyStart: (a: string, s: string) => void }).__ysfxLobbyStart(a, s)
+const go = ([a, s, iff]: string[]) => (window as unknown as { __ysfxLobbyStart: (a: string, s: string, iff?: number) => void }).__ysfxLobbyStart(a, s, iff === undefined ? -1 : Number(iff))
 const other = (b: Beacon) => b.aircraft.find((a) => a.alive && !a.player)
 const mine = (b: Beacon) => b.aircraft.find((a) => a.alive && a.player)
 
@@ -208,7 +208,7 @@ type AirP = B & { peer?: { hitsOut: number; hitsIn: number } }
 const own = (x: Beacon) => x.aircraft.find((q) => q.player)
 const copy = (x: Beacon) => x.aircraft.find((q) => !q.player)
 const d3 = (p: number[], q: number[]) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
-async function airPair(browser: import('@playwright/test').Browser, sky: string, gapMs: number) {
+async function airPair(browser: import('@playwright/test').Browser, sky: string, gapMs: number, shooterIff = '-1') {
   const ctxT = await browser.newContext(); const t = await ctxT.newPage(); await watchBeacon(t)
   const ctxS = await browser.newContext(); const sh = await ctxS.newPage(); await watchBeacon(sh)
   const lag = process.env.YSFX_LAG ? `&ysfxlag=${process.env.YSFX_LAG}` : '' // e.g. 100:30 -- both tabs hold what they receive
@@ -219,7 +219,7 @@ async function airPair(browser: import('@playwright/test').Browser, sky: string,
   await t.evaluate(go, ['F-16C_FIGHTINGFALCON', 'NORTH10000_01'])
   await waitForBeacon(t, (x) => !!mine(x), 40_000, 'T out')
   await t.waitForTimeout(gapMs)
-  await sh.evaluate(go, ['F-16C_FIGHTINGFALCON', 'NORTH10000_01'])
+  await sh.evaluate(go, ['F-16C_FIGHTINGFALCON', 'NORTH10000_01', shooterIff])
   await waitForBeacon(sh, (x) => !!mine(x) && !!other(x) && x.seat !== null, 40_000, 'S out, seated, sees T')
   await sh.mouse.click(640, 360)
   return { t, sh, close: async () => { await ctxS.close(); await ctxT.close() } }
@@ -308,7 +308,9 @@ test('in the air: guns from behind', async ({ browser }) => {
 
 test('in the air: a missile from behind', async ({ browser }) => {
   test.setTimeout(300_000)
-  const { t, sh, close } = await airPair(browser, `airm${Date.now() % 100000}`, 5000)
+  // The shooter flies for another side than the target's (the default one): a heat seeker does not lock
+  // on an aircraft of its own side, and a copy now carries its owner's side (YSFX_SHOOTER_IFF=-1 shows that).
+  const { t, sh, close } = await airPair(browser, `airm${Date.now() % 100000}`, 5000, process.env.YSFX_SHOOTER_IFF ?? '0')
   try {
     const first = await waitForBeacon(sh, (x) => !!mine(x) && !!other(x), 5_000, 'S') as AirP
     console.log(`[air-aam] S starts ${d3(mine(first)!.pos, other(first)!.pos).toFixed(0)} m behind T`)
@@ -334,6 +336,105 @@ test('in the air: a missile from behind', async ({ browser }) => {
     if (down) await aftermath(t, sh, 'air-aam')
     expect(down).toBeTruthy()
   } finally { await close() }
+})
+
+type G = B & { peer?: { owned: number; hitsOut: number; hitsIn: number; ground: { n: number; dead: number; damage: number; hitsOut: number; hitsIn: number } } }
+const gnd = (x: Beacon) => (x as G).peer!.ground
+async function selectWeapon(page: import('@playwright/test').Page, re: RegExp) {
+  for (let i = 0; i < 14; i++) {
+    const x = await waitForBeacon(page, (q) => (q.hud ?? []).length > 2, 5_000, 'hud')
+    const was = (x.hud ?? [])[2]
+    if (re.test(was)) return
+    await page.keyboard.down('2'); await page.waitForTimeout(80); await page.keyboard.up('2')
+    await waitForBeacon(page, (q) => (q.hud ?? [])[2] !== was, 1_500, 'weapon changes').catch(() => null)
+  }
+}
+
+test('ground objects: one destroyed by a missile is destroyed for everyone, for a newcomer too, and revived for all', async ({ browser }) => {
+  test.setTimeout(300_000)
+  const sky = `gnd${Date.now() % 100000}`
+  const open = async (who: string) => { const ctx = await browser.newContext(); const page = await ctx.newPage(); await watchBeacon(page); await page.goto(`http://localhost:5173/?ysfxpeer=${sky}:${who}`); await waitForBeacon(page, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, `${who} lobby`); return { ctx, page } }
+  const S = await open('S'), O = await open('O') // O only watches: it has no aircraft out
+  let L: Awaited<ReturnType<typeof open>> | null = null
+  try {
+    await S.page.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_04'])
+    await waitForBeacon(S.page, (x) => !!mine(x) && x.seat !== null, 40_000, 'S out')
+    await S.page.mouse.click(640, 360)
+    await selectWeapon(S.page, /AGM65 /)
+    await S.page.waitForTimeout(1500)
+    for (let i = 0; i < 3; i++) { await S.page.keyboard.down('Shift'); await S.page.waitForTimeout(250); await S.page.keyboard.up('Shift'); await S.page.waitForTimeout(1500) }
+    const sh = await waitForBeacon(S.page, (x) => gnd(x).dead > 0, 40_000, 'S destroys a ground object')
+    const ob = await waitForBeacon(O.page, (x) => gnd(x).dead === gnd(sh).dead && gnd(x).damage === gnd(sh).damage, 10_000, 'O has the same')
+    console.log(`[ground] shooter ${JSON.stringify(gnd(sh))} | watcher ${JSON.stringify(gnd(ob))}`)
+    expect(gnd(ob).hitsIn).toBe(gnd(sh).hitsOut)
+
+    L = await open('L') // arrives after the fact
+    const late = await waitForBeacon(L.page, (x) => gnd(x).dead === gnd(sh).dead && gnd(x).damage === gnd(sh).damage, 15_000, 'the newcomer has the same')
+    console.log(`[ground] newcomer ${JSON.stringify(gnd(late))} (it received no hit, only the totals)`)
+    expect(gnd(late).hitsIn).toBe(0)
+
+    // The watcher revives the ground objects (the session panel's command): everyone's come back.
+    await O.page.evaluate(() => (window as unknown as { __ysfxNetCommand: (c: number) => string }).__ysfxNetCommand(15))
+    for (const [who, pg] of [['watcher', O.page], ['shooter', S.page], ['newcomer', L.page]] as const) {
+      const x = await waitForBeacon(pg, (q) => gnd(q).dead === 0 && gnd(q).damage === 0, 15_000, `${who} revived`)
+      console.log(`[ground] after the revival, ${who} ${JSON.stringify(gnd(x))}`)
+    }
+  } finally { await S.ctx.close(); await O.ctx.close(); await L?.ctx.close() }
+})
+
+test('a mission\'s aircraft: made by one browser, seen and fought by the other', async ({ browser }) => {
+  test.setTimeout(400_000)
+  const sky = `mis${Date.now() % 100000}`
+  const open = async (who: string) => { const ctx = await browser.newContext(); const page = await ctx.newPage(); await watchBeacon(page); await page.goto(`http://localhost:5173/?ysfxpeer=${sky}:${who}`); await waitForBeacon(page, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, `${who} lobby`); return { ctx, page } }
+  const M = await open('M'), V = await open('V')
+  const unnamed = (x: Beacon) => x.aircraft.filter((q) => q.alive && !q.player && q.name === '')
+  try {
+    await M.page.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_01'])
+    await waitForBeacon(M.page, (x) => !!mine(x), 40_000, 'M out')
+    // V stays parked on the runway, nose to the north: the mission's aircraft come from there, to attack.
+    await V.page.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_04'])
+    await waitForBeacon(V.page, (x) => !!mine(x) && x.seat !== null, 40_000, 'V out')
+    await V.page.mouse.click(640, 360)
+    console.log(`[mission] before: M sees unnamed ${unnamed(await waitForBeacon(M.page, () => true, 5_000, 'M')).length}, V sees ${unnamed(await waitForBeacon(V.page, () => true, 5_000, 'V')).length}`)
+    await M.page.evaluate(() => (window as unknown as { __ysfxNetCommand: (c: number) => string }).__ysfxNetCommand(11)) // endurance (jets)
+    const mm = await waitForBeacon(M.page, (x) => unnamed(x).length > 0, 30_000, 'the mission makes an aircraft on M') as G
+    const vv = await waitForBeacon(V.page, (x) => unnamed(x).length === unnamed(mm).length, 15_000, 'V sees it')
+    const a = unnamed(mm)[0], c = unnamed(vv)[0]
+    console.log(`[mission] M owns ${mm.peer?.owned} aircraft; its mission's is at ${JSON.stringify(a.pos.map(Math.round))}; V sees one at ${JSON.stringify(c.pos.map(Math.round))} (${d3(a.pos, c.pos).toFixed(0)} m apart, beacons ${vv.t - mm.t} ms apart)`)
+    await selectWeapon(V.page, /AIM9 /)
+    // Up to 200 s: V shoots a missile when the mission's aircraft is ahead, low and within 5 km; who hits whom is whatever happens.
+    let shots = 0, seenFight = 0
+    for (let i = 0; i < 80; i++) {
+      await V.page.waitForTimeout(2500)
+      const [xm, xv] = await Promise.all([waitForBeacon(M.page, () => true, 5_000, 'M'), waitForBeacon(V.page, () => true, 5_000, 'V')]) as G[]
+      const me = mine(xv), foe = unnamed(xv)[0]
+      const far = me && foe ? d3(me.pos, foe.pos) : NaN
+      const ahead = me && foe ? (me.pos[2] - foe.pos[2]) / far : 0, up = me && foe ? (foe.pos[1] - me.pos[1]) / far : 1
+      if (me && foe && far < 5000 && ahead > 0.9 && up < 0.3 && shots < 6) { await V.page.keyboard.down('Shift'); await V.page.waitForTimeout(250); await V.page.keyboard.up('Shift'); shots++ }
+      const fight = (xv.peer?.hitsOut ?? 0) + (xm.peer?.hitsOut ?? 0)
+      if (i % 8 === 7 || !me || !foe || fight !== seenFight) console.log(`[mission] +${((i + 1) * 2.5).toFixed(0)}s: V ${me ? 'flying' : 'DOWN'}, mission aircraft on V ${unnamed(xv).length} / on M ${unnamed(xm).length}, ${isNaN(far) ? '-' : far.toFixed(0) + ' m'} from V${foe ? ` at alt ${foe.pos[1].toFixed(0)}` : ''}; V shot ${shots}, V's hits on it: sent ${xv.peer?.hitsOut} -> M took ${xm.peer?.hitsIn}; its hits on V: M sent ${xm.peer?.hitsOut} -> V took ${xv.peer?.hitsIn}`)
+      seenFight = fight
+      if (!me || !foe) break
+    }
+    if (process.env.YSFX_SHOTS) await V.page.screenshot({ path: `${process.env.YSFX_SHOTS}/mission-v.png` })
+    // The other way round, with the hits injected (a dev hook sends them as V's): the owner's engine must bring its mission aircraft down.
+    const before = await waitForBeacon(M.page, (x) => unnamed(x).length > 0, 30_000, 'M has a mission aircraft') as G
+    const target = unnamed(before)[0]
+    await waitForBeacon(V.page, (x) => unnamed(x).length > 0, 10_000, 'V sees it')
+    let sentAs = ''
+    for (let i = 0; i < 30; i++) {
+      sentAs = await V.page.evaluate(() => (window as unknown as { __ysfxPeerTestHit: (p: number) => string }).__ysfxPeerTestHit(20))
+      await V.page.waitForTimeout(150)
+      const xm = await waitForBeacon(M.page, () => true, 5_000, 'M') as G
+      if (!xm.aircraft.some((q) => q.id === target.id && q.alive)) break
+    }
+    const after = await waitForBeacon(M.page, (x) => !x.aircraft.some((q) => q.id === target.id && q.alive), 15_000, 'the mission aircraft goes down on its owner') as G
+    console.log(`[mission] injected hits on ${sentAs} (M's aircraft ${target.id}): M took ${after.peer!.hitsIn - before.peer!.hitsIn} and it is ${after.aircraft.some((q) => q.id === target.id && q.alive) ? 'still alive' : 'down'}`)
+    await M.page.evaluate(() => (window as unknown as { __ysfxNetCommand: (c: number) => string }).__ysfxNetCommand(14)) // terminate
+    await waitForBeacon(M.page, (x) => unnamed(x).length === 0, 20_000, 'the mission ends on M')
+    await waitForBeacon(V.page, (x) => unnamed(x).length === 0, 10_000, 'its aircraft are gone on V')
+    console.log('[mission] terminated: no mission aircraft left on either')
+  } finally { await M.ctx.close(); await V.ctx.close() }
 })
 
 test('for comparison, the way it is now (host + client over WebRTC): join time, and the host leaving', async ({ browser }) => {

@@ -45,17 +45,17 @@ export function DevHooks({ onField, onApron }: { onField?: (field: string) => vo
       const f = (seat.standUp ?? seat.leave ?? seat.exit) as ((...a: unknown[]) => unknown) | undefined
       return f ? f() : 'no stand-up API'
     }
-    w.__ysfxLobbyStart = (air: string, stp: string) => {
+    w.__ysfxLobbyStart = (air: string, stp: string, iff = -1) => {
       if (!mod) return 'engine not ready'
       const ns: NetState = { mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 }
       if (readNetState(mod, ns).state === NET_FLYING) {
         // Same as the kiosk: let the parked aircraft go, join from standby.
-        setPendingJoin({ air, stp })
+        setPendingJoin({ air, stp, iff })
         requestLeave(mod)
         return 'replacing'
       }
       setKioskJoin(true)
-      requestJoin(mod, air, stp)
+      requestJoin(mod, air, stp, iff)
       return 'requested'
     }
     w.__ysfxPatchFocus = (x?: number | null, z?: number | null) => { setDevPatchFocus(x == null || z == null ? null : { x, z }); return 'set' }

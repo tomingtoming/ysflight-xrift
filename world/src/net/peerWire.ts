@@ -8,17 +8,26 @@
  * aircraft type and pilot name go once a second in a message of their own
  * instead of with every state.
  *
- *   STATE  01 | gen i32 | engine time (4) | packet from its version field on   (~74 bytes)
- *   IDENT  02 | gen i32 | type length u8, type | name length u8, name          (once a second)
- *   GONE   03                                                                  (the aircraft is no longer out)
- *   HIT    04 | victim sender u16 | victim gen i32 | power i16 | died-of u8    (10 bytes)
+ *   STATE   01 | gen i32 | engine time (4) | packet from its version field on   (70 bytes)
+ *   IDENT   02 | gen i32 | iff u8 | type length u8, type | name length u8, name (once a second per aircraft)
+ *   GONE    03 | gen i32                                                        (that aircraft is no longer out)
+ *   HIT     04 | victim sender u16 | victim gen i32 | power i16 | died-of u8    (10 bytes)
+ *   GHIT    05 | ground index u16 | power i16                                   (a hit on a ground object of the field)
+ *   HELLO   06                                                                  (a newcomer: tell me what stands)
+ *   GTOTALS 07 | n x (ground index u16 | damage so far i32)                     (the answer, from everyone who knows any)
+ *   GREVIVE 08                                                                  (the ground objects were revived)
  *
- * gen is the owner's search key of the aircraft: a new aircraft is a new gen.
+ * gen is the owner's search key of the aircraft: a new aircraft is a new gen,
+ * and one sender may have several out (its player's, and a mission's).
  */
 export const MSG_STATE = 1
 export const MSG_IDENT = 2
 export const MSG_GONE = 3
 export const MSG_HIT = 4
+export const MSG_GHIT = 5
+export const MSG_HELLO = 6
+export const MSG_GTOTALS = 7
+export const MSG_GREVIVE = 8
 
 const enc = new TextEncoder()
 const dec = new TextDecoder()
@@ -40,24 +49,60 @@ export function decodeState(msg: Uint8Array): { gen: number; packet: Uint8Array 
   packet.set(msg.subarray(9), 12)
   return { gen: new DataView(msg.buffer, msg.byteOffset).getInt32(1, true), packet }
 }
-export function encodeIdent(gen: number, ident: string, name: string): Uint8Array {
+export function encodeIdent(gen: number, iff: number, ident: string, name: string): Uint8Array {
   const i = enc.encode(ident).subarray(0, 63), n = enc.encode(name).subarray(0, 63)
-  const out = new Uint8Array(7 + i.length + n.length)
+  const out = new Uint8Array(8 + i.length + n.length)
   out[0] = MSG_IDENT
   new DataView(out.buffer).setInt32(1, gen, true)
-  out[5] = i.length
-  out.set(i, 6)
-  out[6 + i.length] = n.length
-  out.set(n, 7 + i.length)
+  out[5] = iff & 255
+  out[6] = i.length
+  out.set(i, 7)
+  out[7 + i.length] = n.length
+  out.set(n, 8 + i.length)
   return out
 }
-export function decodeIdent(msg: Uint8Array): { gen: number; ident: string; name: string } | null {
-  if (msg.length < 7) return null
-  const il = msg[5]
-  if (msg.length < 7 + il) return null
-  const nl = msg[6 + il]
-  if (msg.length < 7 + il + nl) return null
-  return { gen: new DataView(msg.buffer, msg.byteOffset).getInt32(1, true), ident: dec.decode(msg.subarray(6, 6 + il)), name: dec.decode(msg.subarray(7 + il, 7 + il + nl)) }
+export function decodeIdent(msg: Uint8Array): { gen: number; iff: number; ident: string; name: string } | null {
+  if (msg.length < 8) return null
+  const il = msg[6]
+  if (msg.length < 8 + il) return null
+  const nl = msg[7 + il]
+  if (msg.length < 8 + il + nl) return null
+  return { gen: new DataView(msg.buffer, msg.byteOffset).getInt32(1, true), iff: msg[5], ident: dec.decode(msg.subarray(7, 7 + il)), name: dec.decode(msg.subarray(8 + il, 8 + il + nl)) }
+}
+export function encodeGone(gen: number): Uint8Array {
+  const out = new Uint8Array(5)
+  out[0] = MSG_GONE
+  new DataView(out.buffer).setInt32(1, gen, true)
+  return out
+}
+export function decodeGone(msg: Uint8Array): number | null {
+  return msg.length < 5 ? null : new DataView(msg.buffer, msg.byteOffset).getInt32(1, true)
+}
+export function encodeGroundHit(index: number, power: number): Uint8Array {
+  const out = new Uint8Array(5)
+  const v = new DataView(out.buffer)
+  out[0] = MSG_GHIT
+  v.setUint16(1, index, true)
+  v.setInt16(3, Math.max(-32768, Math.min(32767, power)), true)
+  return out
+}
+export function decodeGroundHit(msg: Uint8Array): { index: number; power: number } | null {
+  if (msg.length < 5) return null
+  const v = new DataView(msg.buffer, msg.byteOffset)
+  return { index: v.getUint16(1, true), power: v.getInt16(3, true) }
+}
+export function encodeGroundTotals(totals: Array<[number, number]>): Uint8Array {
+  const out = new Uint8Array(1 + totals.length * 6)
+  const v = new DataView(out.buffer)
+  out[0] = MSG_GTOTALS
+  totals.forEach(([index, total], k) => { v.setUint16(1 + k * 6, index, true); v.setInt32(3 + k * 6, total, true) })
+  return out
+}
+export function decodeGroundTotals(msg: Uint8Array): Array<[number, number]> {
+  const v = new DataView(msg.buffer, msg.byteOffset)
+  const out: Array<[number, number]> = []
+  for (let o = 1; o + 6 <= msg.length; o += 6) out.push([v.getUint16(o, true), v.getInt32(o + 2, true)])
+  return out
 }
 export function encodeHit(victim: number, gen: number, power: number, diedOf: number): Uint8Array {
   const out = new Uint8Array(10)
