@@ -525,7 +525,7 @@ const sky2 = (x: Beacon) => (x as S2).peer!.sky
 const cmd = (page: import('@playwright/test').Page, c: number) => page.evaluate((k) => (window as unknown as { __ysfxNetCommand: (c: number) => string }).__ysfxNetCommand(k), c)
 const openTab = async (browser: import('@playwright/test').Browser, sky: string, who: string) => { const ctx = await browser.newContext(); const page = await ctx.newPage(); await watchBeacon(page)
   // An engine that dies shows only here: the page goes on answering with what it last had.
-  page.on('pageerror', (e) => console.log(`[${who}] page error: ${String(e).slice(0, 300)}`)); page.on('console', (m) => { if (/abort|boot failed|RuntimeError|unreachable|out of bounds/i.test(m.text())) console.log(`[${who}] ${m.text().slice(0, 300)}`) })
+  page.on('pageerror', (e) => console.log(`[${who}] page error: ${String(e).slice(0, 300)}`)); page.on('console', (m) => { if (/abort|boot failed|RuntimeError|unreachable|out of bounds|Sanitizer|SUMMARY|\s#[0-5] 0x/i.test(m.text())) console.log(`[${who}] ${m.text().slice(0, 300)}`) })
   await page.goto(`http://localhost:5173/?ysfxpeer=${sky}:${who}`); await waitForBeacon(page, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, `${who} lobby`); return { ctx, page } }
 
 test('a mission is the sky\'s: the others see which and how long; two at once leave one; its browser leaving hands it over', async ({ browser }) => {
@@ -592,9 +592,9 @@ test('three tabs: the third watches one shoot the other down, and all three (and
 })
 
 test('intercept mission: its aircraft exist on the other browser where their owner has them, and the mission shows there', async ({ browser }) => {
-  // Kept to the first minute: a lone tab in the ordinary host mode stops answering about two minutes
-  // into this mission (tests/local-zz-hang.spec.ts), so what the attackers do to the base is not reached here.
-  test.setTimeout(300_000)
+  // Runs until the attackers have hit the base (up to five minutes).  Before engine/build.sh kept the
+  // null checks of the legacy list code, a tab in this mission would sometimes stop answering by then.
+  test.setTimeout(540_000)
   const sky = `int${Date.now() % 100000}`
   const M = await openTab(browser, sky, 'M'), V = await openTab(browser, sky, 'V')
   const unnamed = (x: Beacon) => x.aircraft.filter((q) => q.alive && !q.player && q.name === '')
@@ -610,6 +610,19 @@ test('intercept mission: its aircraft exist on the other browser where their own
       console.log(`[intercept] +${(i + 1) * 8}s: M owns ${xm.peer!.owned} (its mission's aircraft: ${unnamed(xm).length}) | V sees ${unnamed(xv).length}, nearest to each (m): ${JSON.stringify(apart.map((a) => Math.round(a)))} (beacons ${xv.t - xm.t} ms apart) | V shows mission ${JSON.stringify(sky2(xv).mission)}`)
       if (i === 3) { expect(unnamed(xv).length).toBe(unnamed(xm).length); expect(sky2(xv).mission?.cmd).toBe(10) }
     }
+    // What the attackers destroy on the base is destroyed on V too.
+    let hit = false
+    for (let i = 0; i < 27 && !hit; i++) {
+      await M.page.waitForTimeout(10_000)
+      const [xm, xv] = await Promise.all([waitForBeacon(M.page, () => true, 5_000, 'M'), waitForBeacon(V.page, () => true, 5_000, 'V')]) as S2[]
+      hit = gnd(xm).damage > 0
+      if (hit || i % 6 === 5) console.log(`[intercept] +${32 + (i + 1) * 10}s: M owns ${xm.peer!.owned}, steps ${xm.steps} | field ground [dead, damage] on M ${JSON.stringify([gnd(xm).dead, gnd(xm).damage])} (it told ${gnd(xm).hitsOut} hits) on V ${JSON.stringify([gnd(xv).dead, gnd(xv).damage])} (it took ${gnd(xv).hitsIn}) | launches M told ${(xm as unknown as AirP).peer!.launches.out}, V replayed ${(xv as unknown as AirP).peer!.launches.shown}`)
+    }
+    if (hit) {
+      const xm = await waitForBeacon(M.page, () => true, 5_000, 'M') as S2
+      const xv = await waitForBeacon(V.page, (x) => gnd(x).damage === gnd(xm).damage && gnd(x).dead === gnd(xm).dead, 15_000, 'V has the same ground damage') as S2
+      console.log(`[intercept] the base was hit: field ground [dead, damage] on M ${JSON.stringify([gnd(xm).dead, gnd(xm).damage])}, on V ${JSON.stringify([gnd(xv).dead, gnd(xv).damage])}`)
+    } else console.log('[intercept] the attackers did not hit the base within five minutes: not observed')
     await cmd(M.page, 14)
     await waitForBeacon(V.page, (x) => sky2(x).mission === null && unnamed(x).length === 0, 20_000, 'over on V')
     console.log(`[intercept] terminated: V shows no mission and no mission aircraft`)

@@ -39,6 +39,22 @@ LINK_OPTIONS+=";-sINCOMING_MODULE_JS_API=${INCOMING}"
 LINK_OPTIONS+=";-lopenal"
 # YSFX_PROFILING=1 keeps the function names in the binary (for a call stack from a stuck page).
 if [[ -n "${YSFX_PROFILING:-}" ]]; then LINK_OPTIONS+=";--profiling-funcs"; fi
+# YSFX_ASAN=1 builds with AddressSanitizer (its own build directory; slow, for hunting memory errors).
+# The engine's legacy list code (ysclass YsList and others) is called on null pointers and checks
+# `this==NULL` itself.  A compiler is free to drop that check, and at -O2 clang does: an "append to
+# an empty list" then reads and writes the first bytes of memory, leaves a heap address there, and the
+# next one follows that stale address into freed memory (seen 2026-11-21: bytes 60 and 124 of the
+# engine's memory fill in about two minutes into a mission, in the production build too; a page then
+# stops answering inside YsSword::ConvexnizeGo).  This flag keeps the checks.  YSFX_KEEP_UB=1 builds
+# without it, to compare.
+NULL_CHECKS="-fno-delete-null-pointer-checks"
+if [[ -n "${YSFX_KEEP_UB:-}" ]]; then NULL_CHECKS=""; fi
+EXTRA_CMAKE=("-DCMAKE_C_FLAGS=$NULL_CHECKS" "-DCMAKE_CXX_FLAGS=$NULL_CHECKS")
+if [[ -n "${YSFX_ASAN:-}" ]]; then
+    BUILD_DIR="$ROOT/engine/build-asan"
+    LINK_OPTIONS+=";-fsanitize=address;--profiling-funcs"
+    EXTRA_CMAKE=("-DCMAKE_C_FLAGS=-fsanitize=address $NULL_CHECKS" "-DCMAKE_CXX_FLAGS=-fsanitize=address $NULL_CHECKS")
+fi
 LINK_OPTIONS+=";SHELL:--preload-file ${RUNTIME_DIR}@/ysflight"
 
 emcmake cmake -S "$ROOT/upstream/YSFLIGHT/src" -B "$BUILD_DIR" \
@@ -46,7 +62,7 @@ emcmake cmake -S "$ROOT/upstream/YSFLIGHT/src" -B "$BUILD_DIR" \
     -DYSFLIGHT_WEB_PORT_DIR="$PORT_DIR" \
     -DYSFLIGHT_EMSCRIPTEN_LINK_OPTIONS="$LINK_OPTIONS" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-    -DCMAKE_EXE_LINKER_FLAGS="-O2"
+    -DCMAKE_EXE_LINKER_FLAGS="-O2" "${EXTRA_CMAKE[@]}"
 
 NPROC=$( (nproc 2>/dev/null || sysctl -n hw.ncpu) )
 cmake --build "$BUILD_DIR" --target ysflight32_gl2 -j"$NPROC"
