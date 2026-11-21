@@ -485,6 +485,35 @@ test('close air support: the mission\'s tanks and aircraft exist on the other br
   } finally { await M.ctx.close(); await V.ctx.close() }
 })
 
+test('the field: one tab changes it, every tab moves there (a newcomer too), and they still see each other', async ({ browser }) => {
+  test.setTimeout(400_000)
+  const sky = `fld${Date.now() % 100000}`
+  const open = async (who: string) => { const ctx = await browser.newContext(); const page = await ctx.newPage(); await watchBeacon(page); await page.goto(`http://localhost:5173/?ysfxpeer=${sky}:${who}`); return { ctx, page } }
+  const ready = (page: import('@playwright/test').Page, field: string, who: string) => waitForBeacon(page, (x) => x.field.current === field && !!x.net && x.net.ready && !!x.lobby && x.lobby[0] > 10 && x.load?.stage === 'ready', 120_000, `${who} ready on ${field}`)
+  const A = await open('A'), Bt = await open('B')
+  let C: Awaited<ReturnType<typeof open>> | null = null
+  try {
+    const a0 = await ready(A.page, 'ATSUGI_AIRBASE', 'A'); await ready(Bt.page, 'ATSUGI_AIRBASE', 'B')
+    const other2 = a0.field.names.find((n) => /NAHA/.test(n)) ?? a0.field.names.find((n) => n !== 'ATSUGI_AIRBASE')!
+    const t0 = Date.now()
+    await Bt.page.evaluate((f) => (window as unknown as { __ysfxSetField: (f: string) => string }).__ysfxSetField(f), other2) // B changes it, not A
+    await ready(Bt.page, other2, 'B'); const tB = Date.now() - t0
+    const a1 = await ready(A.page, other2, 'A')
+    console.log(`[field] B chose ${other2}: B there after ${tB} ms, A after ${Date.now() - t0} ms; A's field has ${(a1 as G).peer?.ground.n} ground objects (Atsugi: ${(a0 as G).peer?.ground.n})`)
+    C = await open('C')
+    await ready(C.page, other2, 'C (arrived later)')
+    console.log(`[field] a newcomer lands on ${other2} too`)
+    // After the engines restarted on the new field: do the tabs still see each other?
+    const stps = await A.page.evaluate(() => { const m = (window as unknown as { __ysfx: { _FsVrLobbyStpCount: () => number; _FsVrLobbyStpName: (i: number) => number; UTF8ToString: (p: number) => string } }).__ysfx; return Array.from({ length: Math.min(4, m._FsVrLobbyStpCount()) }, (_, i) => m.UTF8ToString(m._FsVrLobbyStpName(i))) })
+    await A.page.evaluate(go, ['F-16C_FIGHTINGFALCON', stps[0]])
+    await waitForBeacon(A.page, (x) => !!mine(x), 40_000, 'A out')
+    await Bt.page.evaluate(go, ['F-16C_FIGHTINGFALCON', stps[1]])
+    await waitForBeacon(Bt.page, (x) => !!mine(x), 40_000, 'B out')
+    const seen = await Promise.all([A.page, Bt.page, C.page].map((pg, i) => waitForBeacon(pg, (x) => x.aircraft.filter((q) => q.alive && !q.player).length === (i === 2 ? 2 : 1), 20_000, `tab ${i} sees the others`)))
+    console.log(`[field] on ${other2} (${stps[0]}, ${stps[1]}): A sees ${seen[0].aircraft.filter((q) => q.alive && !q.player).length} other, B sees ${seen[1].aircraft.filter((q) => q.alive && !q.player).length}, C (no aircraft) sees ${seen[2].aircraft.filter((q) => q.alive && !q.player).length}`)
+  } finally { await A.ctx.close(); await Bt.ctx.close(); await C?.ctx.close() }
+})
+
 test('for comparison, the way it is now (host + client over WebRTC): join time, and the host leaving', async ({ browser }) => {
   test.setTimeout(300_000)
   const room = String(10000000 + (Date.now() % 89999999))

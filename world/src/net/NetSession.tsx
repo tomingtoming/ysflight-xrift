@@ -21,6 +21,7 @@ import { isCoarsePointer } from './TouchConsole'
 import { StateBeacon } from './StateBeacon'
 import { setConnectStatus, setSessionRole } from './roleStore'
 import { PeerLink } from './PeerLink'
+import { usePeerField } from './peerField'
 
 export interface NetSessionState {
   hostId: string | null
@@ -188,6 +189,8 @@ export function NetSession({ children }: NetSessionProps) {
   // it to the others through the relay room <sky> (net/PeerLink.tsx).
   const peer = import.meta.env.DEV ? /[?&]ysfxpeer=([A-Za-z0-9_-]+)(?::([A-Za-z0-9]+))?/.exec(location.search) : null
   const peerRoom = useMemo(makeRoom, [])
+  const RELAY_URL = SIGNAL_URL.replace(/\/signal$/, '/relay')
+  const [peerField, setPeerField] = usePeerField(RELAY_URL, peer ? peer[1] : null)
   if (peer) {
     role = 'host'
     room = peerRoom
@@ -199,9 +202,10 @@ export function NetSession({ children }: NetSessionProps) {
   }
   const hostUser = net.hostId === me.id ? me : remoteUsers.find((u) => u.id === net.hostId)
   setSessionRole(role, forced && role === 'host' ? me.displayName : (hostUser?.displayName ?? ''))
-  const field = (forced ? devField : net.field) ?? FIELD
-  const isForced = !!forced
-  const hostSetField = useCallback((f: string) => { if (isForced) setDevField(f); else setNet((prev) => ({ ...prev, field: f })) }, [isForced, setNet])
+  const field = (peer ? peerField : forced ? devField : net.field) ?? FIELD
+  const isForced = !!forced, isPeer = !!peer
+  // Peer sky: there is no host, so anyone may change the field (peerField.ts).
+  const hostSetField = useCallback((f: string) => { if (isPeer) setPeerField(f); else if (isForced) setDevField(f); else setNet((prev) => ({ ...prev, field: f })) }, [isPeer, isForced, setNet, setPeerField])
   const setField = role === 'host' ? hostSetField : undefined
   // The world below is the same element until one of these changes: the
   // host's heartbeat lands in the instance state every few seconds and
@@ -232,7 +236,7 @@ export function NetSession({ children }: NetSessionProps) {
   return (
     <>
       {engine}
-      {peer ? <PeerLink relayUrl={SIGNAL_URL.replace(/\/signal$/, '/relay')} room={peer[1]} pilotName={pilotName} /> : null}
+      {peer ? <PeerLink relayUrl={RELAY_URL} room={peer[1]} pilotName={pilotName} /> : null}
       {role === 'client' && !failed ? <ClientWatchdog onStall={onStall} stallS={stallS} /> : null}
       {role === 'client' ? <IdleWatch idleSince={idleSince} /> : null}
       <StateBeacon role={role} room={room} field={field} election={{ cls: myClass, hostId: net.hostId, hostClass: net.hostClass, beat: net.beat }} />
