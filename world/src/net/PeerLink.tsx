@@ -25,14 +25,27 @@
  *
  * An aircraft goes away on the others when its owner says so (GONE), when the
  * carrier reports the sender left, or when nothing has come for SILENT_MS.
+ *
+ * Missions.  The browser that starts one runs it and is its referee: it says
+ * once a second which mission and how long is left, and that is what the
+ * others show.  One mission to a sky: if two run, the browser with the lower
+ * number keeps its own and the other ends its.  If the browser that runs the
+ * mission leaves, the lowest-numbered one still there starts it again with the
+ * time that was left (the mission's aircraft and units are made anew).
+ *
+ * Score.  When something goes down to another browser's hit, its owner says
+ * who did it (KILL); every browser counts the same lines, and a newcomer is
+ * handed the count.
  */
 import { useFrame } from '@react-three/fiber'
 import { useEffect, useRef } from 'react'
 import { useEngine } from '../engine/engineStore'
 import { openRelay, type PeerCarrier } from './peerRelay'
+import { NET_CMD, requestCommand } from './netState'
 import {
   CLS_AIR, CLS_GROUND, MSG_GHIT, MSG_GONE, MSG_GREVIVE, MSG_GSTATE, MSG_GTOTALS, MSG_HELLO, MSG_HIT, MSG_IDENT, MSG_LAUNCH, MSG_STATE,
-  decodeLaunch, encodeLaunch,
+  MSG_ALIVE, MSG_KILL, MSG_MISSION, MSG_SCORES, type Scores,
+  decodeKill, decodeLaunch, decodeMission, decodeScores, encodeKill, encodeLaunch, encodeMission, encodeScores,
   decodeGone, decodeGroundHit, decodeGroundState, decodeGroundTotals, decodeHit, decodeIdent, decodeState,
   encodeGone, encodeGroundHit, encodeGroundState, encodeGroundTotals, encodeHit, encodeIdent, encodeState,
 } from './peerWire'
@@ -41,6 +54,9 @@ const SEND_MS = 100
 const QUIET_MS = 1000
 const IDENT_MS = 1000
 const SILENT_MS = 3500
+const MISSION_MS = 1000
+const ALIVE_MS = 2000
+const ROSTER_MS = 5000
 
 /** What the test beacon reports about the link. */
 export const peerStatus = {
@@ -55,6 +71,8 @@ export const peerStatus = {
   groundPos: { owned: [] as number[][], copies: [] as number[][] },
   /** Ground objects of the field: how many, how many dead, damage known in all; hits sent and received. */
   ground: { n: 0, dead: 0, damage: 0, hitsOut: 0, hitsIn: 0 },
+  /** The sky as everyone should see it: the mission that runs (command, seconds left, whose: 0 = this tab's), the score, who is here. */
+  sky: { mission: null as null | { cmd: number; seconds: number; owner: number }, scores: {} as Scores, roster: [] as number[], yielded: 0, adopted: 0, kills: 0 },
   /** Everything this tab has sent: messages and bytes (payload, without the carrier's framing), by kind. */
   out: { states: 0, stateBytes: 0, idents: 0, identBytes: 0, others: 0, otherBytes: 0 },
 }
@@ -79,7 +97,20 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
   const remotes = useRef(new Map<string, Remote>())
   const mine = useRef(new Map<string, Mine>())
   const self = useRef(0)
+  const handOverRef = useRef<() => void>(() => {})
   const sendAcc = useRef(SEND_MS)
+  /** Senders heard from lately, and the mission another of them runs. */
+  const roster = useRef(new Map<number, number>())
+  const theirs = useRef<null | { sender: number; cmd: number; seconds: number; at: number }>(null)
+  const missionAt = useRef(0)
+  const aliveAt = useRef(0)
+  const myCmdWas = useRef(0)
+  const tally = (victim: string, by: string) => {
+    const sc = peerStatus.sky.scores
+    if (by) (sc[by] ??= { kills: 0, losses: 0 }).kills++
+    if (victim) (sc[victim] ??= { kills: 0, losses: 0 }).losses++
+    peerStatus.sky.kills++
+  }
 
   useEffect(() => {
     if (!mod || !mod._FsVrPeerOwnCount) return
@@ -88,6 +119,18 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
       if (r && remotes.current.delete(key)) mod.ccall('FsVrPeerRemove', null, ['string', 'number'], [key, r.cls])
     }
     const forgetSender = (sender: number) => { for (const [k, r] of [...remotes.current]) if (r.sender === sender) forget(k) }
+    // The browser that ran the mission is gone without ending it: the lowest number still here takes it over.
+    const handOver = () => {
+      const m = theirs.current
+      theirs.current = null
+      if (!m || m.cmd === 0) return
+      const now = performance.now()
+      const here = [...roster.current].filter(([s, at]) => s !== m.sender && now - at < ROSTER_MS).map(([s]) => s)
+      if (here.some((s) => s < self.current)) return
+      mod.ccall('FsVrPeerMissionAdopt', null, ['number', 'number'], [m.cmd, Math.max(0, m.seconds - (now - m.at) / 1000)])
+      peerStatus.sky.adopted++
+    }
+    handOverRef.current = handOver
     const count = (m: Uint8Array) => { peerStatus.out.others++; peerStatus.out.otherBytes += m.length }
     // One connection per engine boot: a restarted engine's clock starts over,
     // and the others must take what it sends as a new sender, not as stale states.
@@ -95,9 +138,14 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
       onOpen: (n) => {
         self.current = n; peerStatus.self = n; peerStatus.open = true
         mine.current.clear() // name everything again
+        roster.current.clear(); theirs.current = null; missionAt.current = 0
         const hello = new Uint8Array([MSG_HELLO]); c.send(hello); count(hello)
       },
-      onLeft: forgetSender,
+      onLeft: (sender) => {
+        roster.current.delete(sender)
+        forgetSender(sender)
+        if (theirs.current?.sender === sender) handOver()
+      },
       onDown: () => {
         peerStatus.open = false
         for (const k of [...remotes.current.keys()]) forget(k) // nothing more will come: do not leave the others frozen in the sky
@@ -105,7 +153,34 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
       onMessage: (sender, msg) => {
         if (msg.length === 0) return
         const now = performance.now()
+        roster.current.set(sender, now)
         switch (msg[0]) {
+          case MSG_ALIVE:
+            break
+          case MSG_MISSION: {
+            const d = decodeMission(msg)
+            if (!d) break
+            if (d.cmd === 0) { if (theirs.current?.sender === sender) theirs.current = null; break }
+            // Two browsers may say so at once: the lower number's is the sky's.
+            if (!theirs.current || sender <= theirs.current.sender) theirs.current = { sender, cmd: d.cmd, seconds: d.seconds, at: now }
+            break
+          }
+          case MSG_KILL: {
+            const d = decodeKill(msg)
+            if (!d) break
+            tally(d.victim, d.by)
+            mod.ccall('FsVrPeerSay', null, ['string'], [`${d.by || '?'} shot down ${d.victim}`])
+            break
+          }
+          case MSG_SCORES: {
+            // A newcomer's catch-up, from everyone: the same lines counted everywhere, so the larger number is the fuller one.
+            const sc = peerStatus.sky.scores
+            for (const [name, v] of Object.entries(decodeScores(msg))) {
+              const mineRow = (sc[name] ??= { kills: 0, losses: 0 })
+              mineRow.kills = Math.max(mineRow.kills, v.kills); mineRow.losses = Math.max(mineRow.losses, v.losses)
+            }
+            break
+          }
           case MSG_IDENT: {
             const d = decodeIdent(msg)
             if (d) { const k = keyOf(sender, d.cls, d.gen); remotes.current.set(k, { sender, ...d, at: remotes.current.get(k)?.at ?? now }) }
@@ -171,6 +246,8 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
             }
             if (totals.length) { const m = encodeGroundTotals(totals); c.send(m); count(m) }
             for (const v of mine.current.values()) { v.identAt = 0; v.stateAt = 0 }
+            if (Object.keys(peerStatus.sky.scores).length) { const m = encodeScores(peerStatus.sky.scores); c.send(m); count(m) }
+            missionAt.current = 0 // say the mission now
             break
           }
         }
@@ -178,6 +255,7 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
     }, LAG)
     carrier.current = c
     peerStatus.room = room
+    mod.ccall('FsVrPeerEnable', null, ['number'], [1])
     // Dev aid for the tests: send a hit on another sender's unnamed (mission) aircraft
     // as if this tab's weapons had scored it -- aiming a real one from a script is luck.
     const w = window as unknown as { __ysfxPeerTestHit?: (power: number) => string }
@@ -220,6 +298,15 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
       }
     }
     if (mod._FsVrPeerTakeRevive?.()) other(new Uint8Array([MSG_GREVIVE]))
+    if (mod._FsVrPeerTakeKill) {
+      for (let h = mod._FsVrPeerTakeKill(), n = 0; h !== 0 && n < 16; h = mod._FsVrPeerTakeKill(), n++) {
+        const victim = mod.UTF8ToString(h + 8), by = mod.UTF8ToString(h + 72)
+        other(encodeKill(victim, by))
+        tally(victim, by)
+        // The engine has already told the pilot of its own aircraft; anything else it owns gets the line here.
+        if (victim !== pilotName) mod.ccall('FsVrPeerSay', null, ['string'], [`${by || '?'} shot down ${victim}`])
+      }
+    }
     if (mod._FsVrPeerTakeLaunch) {
       for (let h = mod._FsVrPeerTakeLaunch(), n = 0; h !== 0 && n < 64; h = mod._FsVrPeerTakeLaunch(), n++) {
         const dv = new DataView(mod.HEAPU8.buffer)
@@ -248,6 +335,25 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
     const gs = mod._FsVrPeerGroundStatusPointer?.()
     const view = new DataView(mod.HEAPU8.buffer)
     if (gs) { peerStatus.ground.n = view.getInt32(gs, true); peerStatus.ground.dead = view.getInt32(gs + 4, true); peerStatus.ground.damage = view.getInt32(gs + 8, true) }
+
+    // Who is here; the mission (this tab's, or the one another runs); who yields when two run.
+    if (now - aliveAt.current >= ALIVE_MS) { aliveAt.current = now; other(new Uint8Array([MSG_ALIVE])) }
+    for (const [s, at] of [...roster.current]) if (now - at > ROSTER_MS) roster.current.delete(s)
+    peerStatus.sky.roster = [...roster.current.keys()].sort((a, b) => a - b)
+    if (theirs.current && now - theirs.current.at > SILENT_MS) handOverRef.current()
+    const mp = mod._FsVrPeerMissionPointer?.()
+    const myCmd = mp ? mod.HEAPF32[mp >> 2] : 0, mySec = mp ? mod.HEAPF32[(mp >> 2) + 1] : 0
+    if (now - missionAt.current >= MISSION_MS || (myCmd === 0) !== (myCmdWas.current === 0)) {
+      missionAt.current = now
+      if (myCmd !== 0) {
+        other(encodeMission(myCmd, mySec))
+        if (theirs.current && theirs.current.sender < self.current) { requestCommand(mod, NET_CMD.TERMINATE_MISSION); peerStatus.sky.yielded++ }
+      } else if (myCmdWas.current !== 0) other(encodeMission(0, 0))
+      myCmdWas.current = myCmd
+    }
+    const t = theirs.current
+    peerStatus.sky.mission = myCmd !== 0 && !(t && t.sender < self.current) ? { cmd: myCmd, seconds: Math.round(mySec), owner: 0 }
+      : t ? { cmd: t.cmd, seconds: Math.max(0, Math.round(t.seconds - (now - t.at) / 1000)), owner: t.sender } : null
 
     const n = mod._FsVrPeerOwnCount()
     peerStatus.owned = n

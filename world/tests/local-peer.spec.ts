@@ -514,6 +514,97 @@ test('the field: one tab changes it, every tab moves there (a newcomer too), and
   } finally { await A.ctx.close(); await Bt.ctx.close(); await C?.ctx.close() }
 })
 
+type Sky = { mission: null | { cmd: number; seconds: number; owner: number }; scores: Record<string, { kills: number; losses: number }>; roster: number[]; yielded: number; adopted: number; kills: number }
+type S2 = M2 & { peer?: { self: number; sky: Sky } }
+const sky2 = (x: Beacon) => (x as S2).peer!.sky
+const cmd = (page: import('@playwright/test').Page, c: number) => page.evaluate((k) => (window as unknown as { __ysfxNetCommand: (c: number) => string }).__ysfxNetCommand(k), c)
+const openTab = async (browser: import('@playwright/test').Browser, sky: string, who: string) => { const ctx = await browser.newContext(); const page = await ctx.newPage(); await watchBeacon(page); await page.goto(`http://localhost:5173/?ysfxpeer=${sky}:${who}`); await waitForBeacon(page, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, `${who} lobby`); return { ctx, page } }
+
+test('a mission is the sky\'s: the others see which and how long; two at once leave one; its browser leaving hands it over', async ({ browser }) => {
+  test.setTimeout(500_000)
+  const sky = `ref${Date.now() % 100000}`
+  const A = await openTab(browser, sky, 'A'), Bt = await openTab(browser, sky, 'B'), C = await openTab(browser, sky, 'C')
+  try {
+    const ids = await Promise.all([A, Bt, C].map(async (t) => ((await waitForBeacon(t.page, (x) => ((x as S2).peer?.self ?? 0) > 0 && sky2(x).roster.length === 2, 20_000, 'sees the two others')) as S2).peer!.self))
+    console.log(`[referee] the three tabs are senders ${JSON.stringify(ids)}; each sees the two others`)
+    // 1. B starts a mission: A and C show it, with B as its browser, and the time runs.
+    await cmd(Bt.page, 11)
+    const b1 = await waitForBeacon(Bt.page, (x) => sky2(x).mission?.cmd === 11 && sky2(x).mission?.owner === 0, 15_000, 'B runs it')
+    const a1 = await waitForBeacon(A.page, (x) => sky2(x).mission?.cmd === 11 && sky2(x).mission?.owner === ids[1], 15_000, 'A shows B\'s')
+    await A.page.waitForTimeout(5000)
+    const a2 = await waitForBeacon(A.page, (x) => (sky2(x).mission?.seconds ?? 9999) < sky2(a1).mission!.seconds - 3, 10_000, 'the time runs on A')
+    console.log(`[referee] B started endurance: B shows ${JSON.stringify(sky2(b1).mission)}, A shows ${JSON.stringify(sky2(a1).mission)} then ${JSON.stringify(sky2(a2).mission)}; panel line on A: ${JSON.stringify((a2.panel?.log ?? []).slice(-1))}`)
+    // 2. A (a lower number) starts another: B's ends, everyone shows A's.
+    await cmd(A.page, 13)
+    const all = await Promise.all([A, Bt, C].map((t, i) => waitForBeacon(t.page, (x) => sky2(x).mission?.cmd === 13 && sky2(x).mission?.owner === (i === 0 ? 0 : ids[0]), 20_000, `tab ${i} shows A's mission`)))
+    const bEngine = await waitForBeacon(Bt.page, (x) => x.net?.mission === 0, 10_000, 'B\'s own mission is over')
+    console.log(`[referee] A started close air support on top: every tab shows ${JSON.stringify(all.map((x) => sky2(x).mission?.cmd))}; B yielded ${sky2(bEngine).yielded} time(s) and its engine runs mission ${bEngine.net?.mission}`)
+    // 3. A leaves: the lowest number still there (B) takes the mission over with the time that was left.
+    const left = sky2(await waitForBeacon(C.page, () => true, 5_000, 'C')).mission!.seconds
+    await A.ctx.close()
+    const b3 = await waitForBeacon(Bt.page, (x) => sky2(x).mission?.cmd === 13 && sky2(x).mission?.owner === 0, 20_000, 'B takes it over')
+    const c3 = await waitForBeacon(C.page, (x) => sky2(x).mission?.cmd === 13 && sky2(x).mission?.owner === ids[1], 20_000, 'C shows B\'s')
+    console.log(`[referee] A left with ${left} s on the clock: B runs it now with ${sky2(b3).mission?.seconds} s (took over ${sky2(b3).adopted}x), C shows ${JSON.stringify(sky2(c3).mission)} (took over ${sky2(c3).adopted}x)`)
+    expect(sky2(b3).adopted).toBe(1); expect(sky2(c3).adopted).toBe(0)
+    expect(Math.abs(sky2(b3).mission!.seconds - left)).toBeLessThan(15)
+  } finally { await A.ctx.close().catch(() => {}); await Bt.ctx.close(); await C.ctx.close() }
+})
+
+test('three tabs: the third watches one shoot the other down, and all three (and a newcomer) keep the same score', async ({ browser }) => {
+  test.setTimeout(400_000)
+  const sky = `tri${Date.now() % 100000}`
+  const T = await openTab(browser, sky, 'T'), S = await openTab(browser, sky, 'S'), W = await openTab(browser, sky, 'W')
+  let N: Awaited<ReturnType<typeof openTab>> | null = null
+  try {
+    await T.page.evaluate(go, ['B747', 'RW01_01'])
+    await waitForBeacon(T.page, (x) => !!mine(x), 40_000, 'T out')
+    await S.page.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_04'])
+    await waitForBeacon(S.page, (x) => !!mine(x) && !!other(x) && x.seat !== null, 40_000, 'S out')
+    const w0 = await waitForBeacon(W.page, (x) => x.aircraft.filter((q) => q.alive && !q.player).length === 2, 20_000, 'W sees both')
+    console.log(`[three] the watcher sees ${JSON.stringify(w0.aircraft.filter((q) => q.alive).map((q) => q.name))}`)
+    await S.page.mouse.click(640, 360)
+    for (let i = 0; i < 20; i++) await S.page.keyboard.press('q')
+    const dist = (x: Beacon) => { const m = mine(x)!, o = x.aircraft.find((q) => q.alive && !q.player && /T$/.test(q.name)); return o ? Math.hypot(m.pos[0] - o.pos[0], m.pos[2] - o.pos[2]) : NaN }
+    await waitForBeacon(S.page, (x) => !!mine(x) && dist(x) < 240, 30_000, 'S within 240 m')
+    await S.page.keyboard.down('a'); await S.page.keyboard.down('Shift')
+    const wDown = await waitForBeacon(W.page, (x) => !x.aircraft.some((q) => q.alive && /T$/.test(q.name)), 30_000, 'the watcher sees T go down')
+    await S.page.keyboard.up('Shift'); await S.page.keyboard.up('a')
+    const scores = await Promise.all([T, S, W].map((t) => waitForBeacon(t.page, (x) => sky2(x).kills > 0, 10_000, 'the kill is counted')))
+    console.log(`[three] the watcher saw T go down (it still sees S: ${wDown.aircraft.some((q) => q.alive && /S$/.test(q.name))}); score on T ${JSON.stringify(sky2(scores[0]).scores)} | on S ${JSON.stringify(sky2(scores[1]).scores)} | on the watcher ${JSON.stringify(sky2(scores[2]).scores)}`)
+    expect(JSON.stringify(sky2(scores[2]).scores)).toBe(JSON.stringify(sky2(scores[0]).scores))
+    expect(JSON.stringify(sky2(scores[1]).scores)).toBe(JSON.stringify(sky2(scores[0]).scores))
+    N = await openTab(browser, sky, 'N')
+    const n = await waitForBeacon(N.page, (x) => Object.keys(sky2(x).scores).length > 0, 15_000, 'the newcomer is handed the score')
+    console.log(`[three] a newcomer's score ${JSON.stringify(sky2(n).scores)}`)
+    expect(JSON.stringify(sky2(n).scores)).toBe(JSON.stringify(sky2(scores[0]).scores))
+  } finally { await T.ctx.close(); await S.ctx.close(); await W.ctx.close(); await N?.ctx.close() }
+})
+
+test('intercept mission: its aircraft exist on the other browser where their owner has them, and the mission shows there', async ({ browser }) => {
+  // Kept to the first minute: a lone tab in the ordinary host mode stops answering about two minutes
+  // into this mission (tests/local-zz-hang.spec.ts), so what the attackers do to the base is not reached here.
+  test.setTimeout(300_000)
+  const sky = `int${Date.now() % 100000}`
+  const M = await openTab(browser, sky, 'M'), V = await openTab(browser, sky, 'V')
+  const unnamed = (x: Beacon) => x.aircraft.filter((q) => q.alive && !q.player && q.name === '')
+  try {
+    await M.page.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_01'])
+    await waitForBeacon(M.page, (x) => !!mine(x), 40_000, 'M out')
+    await cmd(M.page, 10)
+    await waitForBeacon(M.page, (x) => ((x as M2).peer?.owned ?? 0) > 1, 60_000, 'the mission makes aircraft')
+    for (let i = 0; i < 4; i++) {
+      await M.page.waitForTimeout(8000)
+      const [xm, xv] = await Promise.all([waitForBeacon(M.page, () => true, 5_000, 'M'), waitForBeacon(V.page, () => true, 5_000, 'V')]) as S2[]
+      const apart = unnamed(xm).map((o) => Math.min(...unnamed(xv).map((c) => d3(o.pos, c.pos)), Infinity))
+      console.log(`[intercept] +${(i + 1) * 8}s: M owns ${xm.peer!.owned} (its mission's aircraft: ${unnamed(xm).length}) | V sees ${unnamed(xv).length}, nearest to each (m): ${JSON.stringify(apart.map((a) => Math.round(a)))} (beacons ${xv.t - xm.t} ms apart) | V shows mission ${JSON.stringify(sky2(xv).mission)}`)
+      if (i === 3) { expect(unnamed(xv).length).toBe(unnamed(xm).length); expect(sky2(xv).mission?.cmd).toBe(10) }
+    }
+    await cmd(M.page, 14)
+    await waitForBeacon(V.page, (x) => sky2(x).mission === null && unnamed(x).length === 0, 20_000, 'over on V')
+    console.log(`[intercept] terminated: V shows no mission and no mission aircraft`)
+  } finally { await M.ctx.close(); await V.ctx.close() }
+})
+
 test('for comparison, the way it is now (host + client over WebRTC): join time, and the host leaving', async ({ browser }) => {
   test.setTimeout(300_000)
   const room = String(10000000 + (Date.now() % 89999999))

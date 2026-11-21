@@ -21,6 +21,7 @@ import { gaugeFrame, gaugeLines, gaugeProbe } from './gauges'
 import { publishPanel } from './StateBeacon'
 import { NET_CMD, airBase, airCount, airIdentifier, airName, consoleTail, readNetState, requestCommand, type NetState } from './netState'
 import type { NetRole } from './NetSession'
+import { peerStatus } from './PeerLink'
 
 const PX = 0.001 // metres per pixel
 const W = 1200
@@ -53,6 +54,8 @@ export function SessionPanel({ position, yaw = 0, role }: { position: [number, n
   const [log, setLog] = useState<string[]>([])
   const [pilots, setPilots] = useState<string[]>([])
   const [mission, setMission] = useState(0)
+  /** Trial "peer sky": the sky's mission and score as every browser shows them (net/PeerLink.tsx). */
+  const [sky, setSky] = useState<[string, string] | null>(null)
   const [armed, setArmed] = useState<{ id: string; until: number } | null>(null)
   const seq = useRef(-1)
   const netRef = useRef<NetState>({ mode: 0, ready: false, state: 0, waiting: false, playerAirId: -1, connected: 0, runState: 0, fatal: 0, rejected: 0 })
@@ -85,6 +88,14 @@ export function SessionPanel({ position, yaw = 0, role }: { position: [number, n
     if (p.length !== pilots.length || p.some((x, i) => x !== pilots[i])) setPilots(p)
     const m = readNetState(mod, netRef.current).mission ?? 0
     if (m !== mission) setMission(m)
+    if (peerStatus.room) {
+      const sm = peerStatus.sky.mission
+      const name = sm ? ({ 10: MISSION[1], 11: '耐久（ジェット）', 12: '耐久（WW2）', 13: MISSION[3] } as Record<number, string>)[sm.cmd] ?? '?' : MISSION[0]
+      const line1 = sm ? `ミッション: ${name}  残り ${Math.floor(sm.seconds / 60)}:${String(sm.seconds % 60).padStart(2, '0')}  （${sm.owner === 0 ? 'ここで進行' : 'ほかの人が進行'}）` : `ミッション: ${name}`
+      const rows = Object.entries(peerStatus.sky.scores).filter(([, v]) => v.kills > 0).sort((a, b) => b[1].kills - a[1].kills).slice(0, 4)
+      const line2 = rows.length ? `撃墜: ${rows.map(([n, v]) => `${n} ${v.kills}`).join(' / ')}` : ''
+      if (!sky || sky[0] !== line1 || sky[1] !== line2) setSky([line1, line2])
+    } else if (sky) setSky(null)
     if (armed && performance.now() > armed.until) setArmed(null)
     const buttons: Array<{ name: string; pos: number[] }> = []
     btnRefs.current.forEach((r, name) => {
@@ -131,7 +142,8 @@ export function SessionPanel({ position, yaw = 0, role }: { position: [number, n
         {row(REPORTS)}
         {host ? (
           <>
-            <Text fontSize={28} color={0xa0c8ff} fontFamily="ja">{`ミッション（ホスト）: ${MISSION[mission] ?? 'なし'}`}</Text>
+            <Text fontSize={28} color={0xa0c8ff} fontFamily="ja">{sky ? sky[0] : `ミッション（ホスト）: ${MISSION[mission] ?? 'なし'}`}</Text>
+            {sky && sky[1] ? <Text fontSize={24} color={0xe0d0a0} fontFamily="ja">{sky[1]}</Text> : null}
             {row(MISSIONS.slice(0, 2))}
             {row(MISSIONS.slice(2, 4))}
             {row(MISSIONS.slice(4, 6))}

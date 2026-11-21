@@ -16,6 +16,10 @@
  *   LAUNCH  0A | the engine's launch record (52) | launcher class u8, gen i32 |
  *                target kind u8, class u8, owner u16, gen i32                   (a missile, rocket, bomb or flare: 66 bytes)
  *                target kind: 0 none, 1 something the sender owns, 2 something of `owner`, 3 a ground object of the field (gen = its index)
+ *   KILL    0B | victim length u8, victim | by length u8, by                    (the owner of what went down says who did it)
+ *   SCORES  0C | n u8 | n x (name length u8, name | kills u16 | losses u16)     (for a newcomer)
+ *   MISSION 0D | command u8 | seconds left u16                                  (once a second by the browser that runs it; command 0: over)
+ *   ALIVE   0E                                                                  (every two seconds: who is in the sky)
  *   GHIT    05 | ground index u16 | power i16                                   (a hit on a ground object of the field)
  *   HELLO   06                                                                  (a newcomer: tell me what stands)
  *   GTOTALS 07 | n x (ground index u16 | damage so far i32)                     (the answer, from everyone who knows any)
@@ -35,6 +39,10 @@ export const MSG_GTOTALS = 7
 export const MSG_GREVIVE = 8
 export const MSG_GSTATE = 9
 export const MSG_LAUNCH = 10
+export const MSG_KILL = 11
+export const MSG_SCORES = 12
+export const MSG_MISSION = 13
+export const MSG_ALIVE = 14
 export const CLS_AIR = 0
 export const CLS_GROUND = 1
 
@@ -161,4 +169,55 @@ export function decodeLaunch(msg: Uint8Array): Launch | null {
   if (msg.length < 66) return null
   const v = new DataView(msg.buffer, msg.byteOffset)
   return { raw: msg.slice(1, 53), byCls: msg[53], byGen: v.getInt32(54, true), tgtKind: msg[58], tgtCls: msg[59], tgtOwner: v.getUint16(60, true), tgtGen: v.getInt32(62, true) }
+}
+export function encodeKill(victim: string, by: string): Uint8Array {
+  const v = enc.encode(victim).subarray(0, 63), b = enc.encode(by).subarray(0, 63)
+  const out = new Uint8Array(3 + v.length + b.length)
+  out[0] = MSG_KILL
+  out[1] = v.length
+  out.set(v, 2)
+  out[2 + v.length] = b.length
+  out.set(b, 3 + v.length)
+  return out
+}
+export function decodeKill(msg: Uint8Array): { victim: string; by: string } | null {
+  if (msg.length < 3) return null
+  const vl = msg[1]
+  if (msg.length < 3 + vl) return null
+  const bl = msg[2 + vl]
+  if (msg.length < 3 + vl + bl) return null
+  return { victim: dec.decode(msg.subarray(2, 2 + vl)), by: dec.decode(msg.subarray(3 + vl, 3 + vl + bl)) }
+}
+export type Scores = Record<string, { kills: number; losses: number }>
+export function encodeScores(scores: Scores): Uint8Array {
+  const rows = Object.entries(scores).slice(0, 40).map(([name, v]) => ({ name: enc.encode(name).subarray(0, 63), v }))
+  const out = new Uint8Array(2 + rows.reduce((a, r) => a + 5 + r.name.length, 0))
+  const dv = new DataView(out.buffer)
+  out[0] = MSG_SCORES
+  out[1] = rows.length
+  let o = 2
+  for (const r of rows) { out[o] = r.name.length; out.set(r.name, o + 1); o += 1 + r.name.length; dv.setUint16(o, r.v.kills, true); dv.setUint16(o + 2, r.v.losses, true); o += 4 }
+  return out
+}
+export function decodeScores(msg: Uint8Array): Scores {
+  const dv = new DataView(msg.buffer, msg.byteOffset)
+  const out: Scores = {}
+  let o = 2
+  for (let i = 0; i < (msg[1] ?? 0) && o < msg.length; i++) {
+    const l = msg[o]
+    if (o + 1 + l + 4 > msg.length) break
+    out[dec.decode(msg.subarray(o + 1, o + 1 + l))] = { kills: dv.getUint16(o + 1 + l, true), losses: dv.getUint16(o + 3 + l, true) }
+    o += 5 + l
+  }
+  return out
+}
+export function encodeMission(cmd: number, seconds: number): Uint8Array {
+  const out = new Uint8Array(4)
+  out[0] = MSG_MISSION
+  out[1] = cmd
+  new DataView(out.buffer).setUint16(2, Math.max(0, Math.min(65535, Math.round(seconds))), true)
+  return out
+}
+export function decodeMission(msg: Uint8Array): { cmd: number; seconds: number } | null {
+  return msg.length < 4 ? null : { cmd: msg[1], seconds: new DataView(msg.buffer, msg.byteOffset).getUint16(2, true) }
 }
