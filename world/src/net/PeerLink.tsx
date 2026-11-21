@@ -258,10 +258,10 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
     mod.ccall('FsVrPeerEnable', null, ['number'], [1])
     // Dev aid for the tests: send a hit on another sender's unnamed (mission) aircraft
     // as if this tab's weapons had scored it -- aiming a real one from a script is luck.
-    const w = window as unknown as { __ysfxPeerTestHit?: (power: number) => string }
+    const w = window as unknown as { __ysfxPeerTestHit?: (power: number, gen?: number) => string }
     if (import.meta.env.DEV) {
-      w.__ysfxPeerTestHit = (power: number) => {
-        const r = [...remotes.current.values()].find((q) => q.name === '' && q.cls === CLS_AIR)
+      w.__ysfxPeerTestHit = (power: number, gen?: number) => {
+        const r = [...remotes.current.values()].find((q) => q.name === '' && q.cls === CLS_AIR && (gen === undefined || q.gen === gen))
         if (!r) return 'no mission aircraft'
         c.send(encodeHit(r.sender, r.cls, r.gen, power, 1, -1))
         peerStatus.hitsOut++
