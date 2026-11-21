@@ -6,9 +6,10 @@
  * engine what they sent (fork: FsVrPeer*).
  *
  * Who owns what (the engine's comment has the full rule):
- *   aircraft        the browser that made them -- its player's, and the ones a
- *                   mission started here generated.  It publishes their states
- *                   and alone decides what a hit does to them.
+ *   aircraft, and   the browser that made them -- its player's aircraft, and the
+ *   a mission's     aircraft and ground units a mission started here generated.
+ *   ground units    It publishes their states and alone decides what a hit does
+ *                   to them.
  *   ground objects  nobody.  Every browser has the field's own; the browser
  *                   whose aircraft hit one says so and all apply the same.
  *
@@ -30,9 +31,10 @@ import { useEffect, useRef } from 'react'
 import { useEngine } from '../engine/engineStore'
 import { openRelay, type PeerCarrier } from './peerRelay'
 import {
-  MSG_GHIT, MSG_GONE, MSG_GREVIVE, MSG_GTOTALS, MSG_HELLO, MSG_HIT, MSG_IDENT, MSG_STATE,
-  decodeGone, decodeGroundHit, decodeGroundTotals, decodeHit, decodeIdent, decodeState,
-  encodeGone, encodeGroundHit, encodeGroundTotals, encodeHit, encodeIdent, encodeState,
+  CLS_AIR, CLS_GROUND, MSG_GHIT, MSG_GONE, MSG_GREVIVE, MSG_GSTATE, MSG_GTOTALS, MSG_HELLO, MSG_HIT, MSG_IDENT, MSG_LAUNCH, MSG_STATE,
+  decodeLaunch, encodeLaunch,
+  decodeGone, decodeGroundHit, decodeGroundState, decodeGroundTotals, decodeHit, decodeIdent, decodeState,
+  encodeGone, encodeGroundHit, encodeGroundState, encodeGroundTotals, encodeHit, encodeIdent, encodeState,
 } from './peerWire'
 
 const SEND_MS = 100
@@ -43,8 +45,14 @@ const SILENT_MS = 3500
 /** What the test beacon reports about the link. */
 export const peerStatus = {
   room: null as string | null, open: false, self: 0, sent: 0, got: 0, peers: 0, firstGotAt: 0, hitsOut: 0, hitsIn: 0, hitsDropped: 0,
-  /** Aircraft this tab publishes now (its player's and its mission's). */
-  owned: 0,
+  /** What this tab publishes now (its player's aircraft, its mission's aircraft and ground units), and what did not fit the engine's list. */
+  owned: 0, ownedGround: 0, ownedDropped: 0,
+  /** Copies here of other tabs' ground units. */
+  groundCopies: 0,
+  /** Weapons launched (missiles, rockets, bombs, flares): told to the others, heard from them, and replayed by the engine here. */
+  launches: { out: 0, in: 0, shown: 0 },
+  /** Dev: where the ground units this tab owns are, and where its copies of the others' are (up to 8 each). */
+  groundPos: { owned: [] as number[][], copies: [] as number[][] },
   /** Ground objects of the field: how many, how many dead, damage known in all; hits sent and received. */
   ground: { n: 0, dead: 0, damage: 0, hitsOut: 0, hitsIn: 0 },
   /** Everything this tab has sent: messages and bytes (payload, without the carrier's framing), by kind. */
@@ -59,24 +67,25 @@ const LAG = (() => {
   return q ? { ms: Number(q[1]), jitter: Number(q[2] ?? 0) } : null
 })()
 
-/** One aircraft of another sender, as its IDENT described it. */
-interface Remote { sender: number; gen: number; iff: number; ident: string; name: string; at: number }
-/** One aircraft this tab publishes: when its state and its IDENT last went. */
-interface Mine { stateAt: number; identAt: number }
-const keyOf = (sender: number, gen: number) => `${sender}:${gen}`
+/** One thing of another sender (an aircraft or a ground unit), as its IDENT described it. */
+interface Remote { sender: number; cls: number; gen: number; iff: number; ident: string; name: string; at: number }
+/** One thing this tab publishes: when its state and its IDENT last went. */
+interface Mine { cls: number; gen: number; stateAt: number; identAt: number }
+const keyOf = (sender: number, cls: number, gen: number) => `${sender}:${cls === CLS_GROUND ? 'g' : ''}${gen}`
 
 export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room: string; pilotName: string }) {
   const mod = useEngine()
   const carrier = useRef<PeerCarrier | null>(null)
   const remotes = useRef(new Map<string, Remote>())
-  const mine = useRef(new Map<number, Mine>())
+  const mine = useRef(new Map<string, Mine>())
   const self = useRef(0)
   const sendAcc = useRef(SEND_MS)
 
   useEffect(() => {
     if (!mod || !mod._FsVrPeerOwnCount) return
     const forget = (key: string) => {
-      if (remotes.current.delete(key)) mod.ccall('FsVrPeerRemove', null, ['string'], [key])
+      const r = remotes.current.get(key)
+      if (r && remotes.current.delete(key)) mod.ccall('FsVrPeerRemove', null, ['string', 'number'], [key, r.cls])
     }
     const forgetSender = (sender: number) => { for (const [k, r] of [...remotes.current]) if (r.sender === sender) forget(k) }
     const count = (m: Uint8Array) => { peerStatus.out.others++; peerStatus.out.otherBytes += m.length }
@@ -99,32 +108,45 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
         switch (msg[0]) {
           case MSG_IDENT: {
             const d = decodeIdent(msg)
-            if (d) { const k = keyOf(sender, d.gen); remotes.current.set(k, { sender, ...d, at: remotes.current.get(k)?.at ?? now }) }
+            if (d) { const k = keyOf(sender, d.cls, d.gen); remotes.current.set(k, { sender, ...d, at: remotes.current.get(k)?.at ?? now }) }
             break
           }
-          case MSG_STATE: {
-            const d = decodeState(msg)
-            const k = d ? keyOf(sender, d.gen) : ''
+          case MSG_STATE:
+          case MSG_GSTATE: {
+            const cls = msg[0] === MSG_STATE ? CLS_AIR : CLS_GROUND
+            const d = cls === CLS_AIR ? decodeState(msg) : decodeGroundState(msg)
+            const k = d ? keyOf(sender, cls, d.gen) : ''
             const r = remotes.current.get(k)
             if (!d || !r) break // its type and name have not come yet (at most a second)
-            mod.ccall('FsVrPeerPushState', null, ['string', 'number', 'string', 'string', 'number', 'array', 'number'], [k, d.gen, r.ident, r.name, r.iff, d.packet, d.packet.length])
+            mod.ccall('FsVrPeerPushState', null, ['string', 'number', 'number', 'string', 'string', 'number', 'array', 'number'], [k, cls, d.gen, r.ident, r.name, r.iff, d.packet, d.packet.length])
             r.at = now
             if (peerStatus.got++ === 0) peerStatus.firstGotAt = now
             break
           }
           case MSG_GONE: {
-            const gen = decodeGone(msg)
-            if (gen !== null) forget(keyOf(sender, gen))
+            const d = decodeGone(msg)
+            if (d) forget(keyOf(sender, d.cls, d.gen))
             break
           }
           case MSG_HIT: {
             const d = decodeHit(msg)
             if (!d || d.victim !== self.current) break
             if (DROP_HITS) { peerStatus.hitsDropped++; break }
-            // A hit someone else's aircraft scored on one of this browser's: the engine here decides what it does.
-            const by = [...remotes.current.values()].find((r) => r.sender === sender && r.name !== '')?.name ?? ''
-            mod.ccall('FsVrPeerPushHit', null, ['string', 'number', 'number', 'number'], [by, d.power, d.diedOf, d.gen])
+            // A hit something of another sender's scored on something this browser owns: the engine here decides what it does.
+            const shooter = remotes.current.get(keyOf(sender, CLS_AIR, d.byGen)) ?? remotes.current.get(keyOf(sender, CLS_GROUND, d.byGen))
+            mod.ccall('FsVrPeerPushHit', null, ['string', 'number', 'number', 'number', 'number'], [shooter ? (shooter.name || shooter.ident) : '', d.cls, d.power, d.diedOf, d.gen])
             peerStatus.hitsIn++
+            break
+          }
+          case MSG_LAUNCH: {
+            // Shown here, decides nothing: what it hits is told by the browser that launched it.
+            const d = decodeLaunch(msg)
+            if (!d) break
+            let kind = d.tgtKind, key = ''
+            if (d.tgtKind === 1) { kind = 2; key = keyOf(sender, d.tgtCls, d.tgtGen) } // the sender's own thing is a copy here
+            else if (d.tgtKind === 2) { if (d.tgtOwner === self.current) kind = 1; else key = keyOf(d.tgtOwner, d.tgtCls, d.tgtGen) }
+            mod.ccall('FsVrPeerPushLaunch', null, ['array', 'string', 'number', 'number', 'number', 'number', 'string'], [d.raw, keyOf(sender, d.byCls, d.byGen), d.byCls, kind, d.tgtCls, d.tgtGen, key])
+            peerStatus.launches.in++
             break
           }
           case MSG_GHIT: {
@@ -161,9 +183,9 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
     const w = window as unknown as { __ysfxPeerTestHit?: (power: number) => string }
     if (import.meta.env.DEV) {
       w.__ysfxPeerTestHit = (power: number) => {
-        const r = [...remotes.current.values()].find((q) => q.name === '')
+        const r = [...remotes.current.values()].find((q) => q.name === '' && q.cls === CLS_AIR)
         if (!r) return 'no mission aircraft'
-        c.send(encodeHit(r.sender, r.gen, power, 1))
+        c.send(encodeHit(r.sender, r.cls, r.gen, power, 1, -1))
         peerStatus.hitsOut++
         return `${r.sender}:${r.gen}`
       }
@@ -186,7 +208,7 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
     if (mod._FsVrPeerTakeHit) {
       for (let h = mod._FsVrPeerTakeHit(), n = 0; h !== 0 && n < 64; h = mod._FsVrPeerTakeHit(), n++) {
         const dv = new DataView(mod.HEAPU8.buffer)
-        other(encodeHit(Number(mod.UTF8ToString(h + 12).split(':')[0]), dv.getInt32(h + 8, true), dv.getInt32(h, true), dv.getInt32(h + 4, true)))
+        other(encodeHit(Number(mod.UTF8ToString(h + 20).split(':')[0]), dv.getInt32(h + 12, true), dv.getInt32(h + 8, true), dv.getInt32(h, true), dv.getInt32(h + 4, true), dv.getInt32(h + 16, true)))
         peerStatus.hitsOut++
       }
     }
@@ -198,12 +220,30 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
       }
     }
     if (mod._FsVrPeerTakeRevive?.()) other(new Uint8Array([MSG_GREVIVE]))
+    if (mod._FsVrPeerTakeLaunch) {
+      for (let h = mod._FsVrPeerTakeLaunch(), n = 0; h !== 0 && n < 64; h = mod._FsVrPeerTakeLaunch(), n++) {
+        const dv = new DataView(mod.HEAPU8.buffer)
+        const tgtKind = dv.getInt32(h + 60, true)
+        other(encodeLaunch({ raw: mod.HEAPU8.slice(h, h + 52), byCls: dv.getInt32(h + 52, true), byGen: dv.getInt32(h + 56, true), tgtKind, tgtCls: dv.getInt32(h + 64, true), tgtOwner: tgtKind === 2 ? Number(mod.UTF8ToString(h + 72).split(':')[0]) : 0, tgtGen: dv.getInt32(h + 68, true) }))
+        peerStatus.launches.out++
+      }
+    }
 
     sendAcc.current += dt * 1000
     if (sendAcc.current < SEND_MS) return
     sendAcc.current = 0
     const now = performance.now()
-    for (const [k, r] of [...remotes.current]) if (now - r.at > SILENT_MS) { remotes.current.delete(k); mod.ccall('FsVrPeerRemove', null, ['string'], [k]) }
+    for (const [k, r] of [...remotes.current]) if (now - r.at > SILENT_MS) { remotes.current.delete(k); mod.ccall('FsVrPeerRemove', null, ['string', 'number'], [k, r.cls]) }
+    peerStatus.groundCopies = mod._FsVrPeerGroundCopyCount?.() ?? 0
+    peerStatus.ownedDropped = mod._FsVrPeerOwnDropped?.() ?? 0
+    peerStatus.launches.shown = mod._FsVrPeerLaunchShown?.() ?? 0
+    if (import.meta.env.DEV && mod._FsVrPeerDebugGroundPos) {
+      for (const [which, into] of [[0, 'owned'], [1, 'copies']] as const) {
+        const list: number[][] = []
+        for (let i = 0; i < 8; i++) { const q = mod._FsVrPeerDebugGroundPos(which, i); if (!q) break; list.push([mod.HEAPF32[q >> 2], mod.HEAPF32[(q >> 2) + 1], mod.HEAPF32[(q >> 2) + 2]]) }
+        peerStatus.groundPos[into] = list
+      }
+    }
     peerStatus.peers = mod._FsVrPeerCount?.() ?? 0
     const gs = mod._FsVrPeerGroundStatusPointer?.()
     const view = new DataView(mod.HEAPU8.buffer)
@@ -211,30 +251,35 @@ export function PeerLink({ relayUrl, room, pilotName }: { relayUrl: string; room
 
     const n = mod._FsVrPeerOwnCount()
     peerStatus.owned = n
-    const out = new Set<number>()
+    let grounds = 0
+    const out = new Set<string>()
     for (let i = 0; i < n; i++) {
       const p = mod._FsVrPeerOwnEntryPointer(i)
       if (!p) continue
-      const len = view.getInt32(p, true), gen = view.getInt32(p + 4, true), quiet = view.getInt32(p + 8, true) !== 0
-      out.add(gen)
-      let m = mine.current.get(gen)
-      if (!m) { m = { stateAt: 0, identAt: 0 }; mine.current.set(gen, m) }
+      const len = view.getInt32(p, true), gen = view.getInt32(p + 4, true), quiet = view.getInt32(p + 8, true) !== 0, cls = view.getInt32(p + 20, true)
+      if (cls === CLS_GROUND) grounds++
+      const id = `${cls}:${gen}`
+      out.add(id)
+      let m = mine.current.get(id)
+      if (!m) { m = { cls, gen, stateAt: 0, identAt: 0 }; mine.current.set(id, m) }
       if (now - m.identAt >= IDENT_MS) {
         const player = view.getInt32(p + 16, true) !== 0
-        const msg = encodeIdent(gen, view.getInt32(p + 12, true), mod.UTF8ToString(p + 20), player ? pilotName : mod.UTF8ToString(p + 84))
+        const msg = encodeIdent(cls, gen, view.getInt32(p + 12, true), mod.UTF8ToString(p + 24), player ? pilotName : mod.UTF8ToString(p + 88))
         c.send(msg)
         o.idents++; o.identBytes += msg.length
         m.identAt = now
       }
       if (!quiet || now - m.stateAt >= QUIET_MS) {
-        const msg = encodeState(gen, mod.HEAPU8.subarray(p + 116, p + 116 + len))
+        const pkt = mod.HEAPU8.subarray(p + 120, p + 120 + len)
+        const msg = cls === CLS_AIR ? encodeState(gen, pkt) : encodeGroundState(gen, pkt)
         c.send(msg)
         o.states++; o.stateBytes += msg.length
         peerStatus.sent++
         m.stateAt = now
       }
     }
-    for (const gen of [...mine.current.keys()]) if (!out.has(gen)) { mine.current.delete(gen); other(encodeGone(gen)) }
+    peerStatus.ownedGround = grounds
+    for (const [id, m] of [...mine.current]) if (!out.has(id)) { mine.current.delete(id); other(encodeGone(m.cls, m.gen)) }
   })
   return null
 }

@@ -36,6 +36,11 @@ export interface YsflightModule {
   _FsVrPeerTakeRevive?: () => number
   _FsVrPeerPushRevive?: () => void
   _FsVrPeerGroundStatusPointer?: () => number
+  _FsVrPeerGroundCopyCount?: () => number
+  _FsVrPeerOwnDropped?: () => number
+  _FsVrPeerTakeLaunch?: () => number
+  _FsVrPeerLaunchShown?: () => number
+  _FsVrPeerDebugGroundPos?: (which: number, n: number) => number
   _FsVrPeerCount?: () => number
   _FsVrPeerTakeHit?: () => number
   // fsvr.h network-lobby automation (ysflight-xrift fork)

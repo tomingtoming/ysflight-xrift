@@ -204,15 +204,15 @@ test('control: with the hit messages thrown away, what do the shooter\'s rounds 
 // In the air: the target starts at 10,000 ft, the shooter starts from the same
 // place a few seconds later -- same aircraft, no input, so it flies the same path
 // behind it with the target dead ahead.
-type AirP = B & { peer?: { hitsOut: number; hitsIn: number } }
+type AirP = B & { peer?: { hitsOut: number; hitsIn: number; hitsDropped: number; launches: { out: number; in: number; shown: number } } }
 const own = (x: Beacon) => x.aircraft.find((q) => q.player)
 const copy = (x: Beacon) => x.aircraft.find((q) => !q.player)
 const d3 = (p: number[], q: number[]) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
-async function airPair(browser: import('@playwright/test').Browser, sky: string, gapMs: number, shooterIff = '-1') {
+async function airPair(browser: import('@playwright/test').Browser, sky: string, gapMs: number, shooterIff = '-1', targetQuery = '') {
   const ctxT = await browser.newContext(); const t = await ctxT.newPage(); await watchBeacon(t)
   const ctxS = await browser.newContext(); const sh = await ctxS.newPage(); await watchBeacon(sh)
   const lag = process.env.YSFX_LAG ? `&ysfxlag=${process.env.YSFX_LAG}` : '' // e.g. 100:30 -- both tabs hold what they receive
-  await t.goto(`http://localhost:5173/?ysfxpeer=${sky}:T${lag}`)
+  await t.goto(`http://localhost:5173/?ysfxpeer=${sky}:T${lag}${targetQuery}`)
   await sh.goto(`http://localhost:5173/?ysfxpeer=${sky}:S${lag}`)
   await waitForBeacon(t, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, 'T lobby')
   await waitForBeacon(sh, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, 'S lobby')
@@ -333,8 +333,26 @@ test('in the air: a missile from behind', async ({ browser }) => {
     const down = await waitForBeacon(t, (x) => (x.panel?.log ?? []).some((l) => /Shot down by/.test(l)) || ((x as AirP).peer?.hitsIn ?? 0) > 0, 25_000, 'T hit').catch(() => null) as AirP | null
     const xs = await waitForBeacon(sh, () => true, 5_000, 'S') as AirP, xt = await waitForBeacon(t, () => true, 5_000, 'T') as AirP
     console.log(`[air-aam] ${down ? `T hit ${Date.now() - t0} ms after launch` : 'T NOT hit in 25 s'}: S reported ${xs.peer?.hitsOut}, T took ${xt.peer?.hitsIn}; T log ${JSON.stringify((xt.panel?.log ?? []).filter((l) => /Shot down/.test(l)))}; S weapon now ${JSON.stringify((xs.hud ?? []).slice(2, 3))}`)
+    console.log(`[air-aam] the launch: S told ${xs.peer?.launches.out}, T heard ${xt.peer?.launches.in} and its engine replayed ${xt.peer?.launches.shown}`)
     if (down) await aftermath(t, sh, 'air-aam')
     expect(down).toBeTruthy()
+    expect(xt.peer?.launches.shown).toBeGreaterThan(0)
+  } finally { await close() }
+})
+
+test('control: the missile the target\'s browser replays is scenery -- with the hit messages thrown away the target flies on', async ({ browser }) => {
+  test.setTimeout(300_000)
+  const { t, sh, close } = await airPair(browser, `airc${Date.now() % 100000}`, 5000, '0', '&ysfxnohit=1')
+  try {
+    await selectWeapon(sh, /AIM9 /)
+    await sh.waitForTimeout(1500)
+    await sh.keyboard.down('Shift'); await sh.waitForTimeout(250); await sh.keyboard.up('Shift')
+    const hit = await waitForBeacon(t, (x) => ((x as AirP).peer?.hitsDropped ?? 0) > 0, 25_000, 'the hit message reaches T (and is thrown away)') as AirP
+    await t.waitForTimeout(6000) // long enough for the replayed missile to arrive too
+    const xt = await waitForBeacon(t, () => true, 5_000, 'T') as AirP, xs = await waitForBeacon(sh, () => true, 5_000, 'S') as AirP
+    console.log(`[air-control] S told ${xs.peer?.launches.out} launch and ${xs.peer?.hitsOut} hit; T replayed ${xt.peer?.launches.shown} launch, threw away ${xt.peer?.hitsDropped} hit (first at ${hit.t}); T's own aircraft is ${mine(xt) ? 'still flying, alt ' + mine(xt)!.pos[1].toFixed(0) : 'DOWN'}`)
+    expect(xt.peer?.launches.shown).toBeGreaterThan(0)
+    expect(mine(xt)).toBeTruthy()
   } finally { await close() }
 })
 
@@ -434,6 +452,36 @@ test('a mission\'s aircraft: made by one browser, seen and fought by the other',
     await waitForBeacon(M.page, (x) => unnamed(x).length === 0, 20_000, 'the mission ends on M')
     await waitForBeacon(V.page, (x) => unnamed(x).length === 0, 10_000, 'its aircraft are gone on V')
     console.log('[mission] terminated: no mission aircraft left on either')
+  } finally { await M.ctx.close(); await V.ctx.close() }
+})
+
+type M2 = G & { peer?: { owned: number; ownedGround: number; ownedDropped: number; groundCopies: number; peers: number; groundPos: { owned: number[][]; copies: number[][] } } }
+test('close air support: the mission\'s tanks and aircraft exist on the other browser, and what they destroy is destroyed there', async ({ browser }) => {
+  test.setTimeout(500_000)
+  const sky = `cas${Date.now() % 100000}`
+  const open = async (who: string) => { const ctx = await browser.newContext(); const page = await ctx.newPage(); await watchBeacon(page); await page.goto(`http://localhost:5173/?ysfxpeer=${sky}:${who}`); await waitForBeacon(page, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, `${who} lobby`); return { ctx, page } }
+  const M = await open('M'), V = await open('V')
+  try {
+    await M.page.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_01'])
+    await waitForBeacon(M.page, (x) => !!mine(x), 40_000, 'M out')
+    await M.page.evaluate(() => (window as unknown as { __ysfxNetCommand: (c: number) => string }).__ysfxNetCommand(13)) // close air support
+    const first = await waitForBeacon(M.page, (x) => ((x as M2).peer?.ownedGround ?? 0) > 0, 60_000, 'the mission makes ground units') as M2
+    console.log(`[cas] M owns ${first.peer!.owned} things, ${first.peer!.ownedGround} of them ground units (not published for lack of room: ${first.peer!.ownedDropped})`)
+    for (let i = 0; i < 4; i++) {
+      await M.page.waitForTimeout(10_000)
+      const [xm, xv] = await Promise.all([waitForBeacon(M.page, () => true, 5_000, 'M'), waitForBeacon(V.page, () => true, 5_000, 'V')]) as M2[]
+      console.log(`[cas] +${(i + 1) * 10}s: M owns ${xm.peer!.owned} (${xm.peer!.ownedGround} ground, dropped ${xm.peer!.ownedDropped}) | V has copies: ${xv.peer!.peers} aircraft, ${xv.peer!.groundCopies} ground | field ground on M ${JSON.stringify([gnd(xm).n, gnd(xm).dead, gnd(xm).damage])} on V ${JSON.stringify([gnd(xv).n, gnd(xv).dead, gnd(xv).damage])} (M sent ${gnd(xm).hitsOut} ground hits, V took ${gnd(xv).hitsIn})`)
+      // Each ground unit M owns against the nearest copy on V.
+      const apart = xm.peer!.groundPos.owned.map((o) => Math.min(...xv.peer!.groundPos.copies.map((c) => d3(o, c)), Infinity))
+      console.log(`[cas]      M's ground units ${JSON.stringify(xm.peer!.groundPos.owned.map((o) => o.map(Math.round)))}; nearest copy on V (m): ${JSON.stringify(apart.map((a) => +a.toFixed(1)))}`)
+      if (i === 3) { expect(xv.peer!.groundCopies).toBe(xm.peer!.ownedGround); expect(Math.max(...apart)).toBeLessThan(15) }
+    }
+    const xm = await waitForBeacon(M.page, () => true, 5_000, 'M') as M2
+    const xv = await waitForBeacon(V.page, (x) => (x as M2).peer!.groundCopies === xm.peer!.ownedGround || true, 5_000, 'V') as M2
+    expect(gnd(xv).n).toBe(gnd(xm).n) // the copies must not be counted as the field's own
+    await M.page.evaluate(() => (window as unknown as { __ysfxNetCommand: (c: number) => string }).__ysfxNetCommand(14))
+    const end = await waitForBeacon(V.page, (x) => (x as M2).peer!.groundCopies === 0, 20_000, 'the copies go with the mission') as M2
+    console.log(`[cas] terminated: V has ${end.peer!.groundCopies} ground copies, ${end.peer!.peers} aircraft copies; field ground on V ${JSON.stringify([gnd(end).n, gnd(end).dead, gnd(end).damage])}`)
   } finally { await M.ctx.close(); await V.ctx.close() }
 })
 
