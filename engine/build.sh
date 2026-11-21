@@ -39,8 +39,19 @@ LINK_OPTIONS+=";-sINCOMING_MODULE_JS_API=${INCOMING}"
 LINK_OPTIONS+=";-lopenal"
 LINK_OPTIONS+=";SHELL:--preload-file ${RUNTIME_DIR}@/ysflight"
 
+# The engine's legacy list code (ysclass YsList and others) is called on null pointers and checks
+# `this==NULL` itself.  A compiler is free to drop that check, and at -O2 clang does: an "append to
+# an empty list" then reads and writes the first bytes of memory, leaves a heap address there, and the
+# next one follows that stale address into freed memory (seen 2026-11-21: bytes 60 and 124 of the
+# engine's memory fill in about two minutes into a mission; a page can then stop answering inside
+# YsSword::ConvexnizeGo).  This flag keeps the checks.  YSFX_KEEP_UB=1 builds without it, to compare
+# (tests/local-lowmem-hunt.spec.ts).
+NULL_CHECKS="-fno-delete-null-pointer-checks"
+if [[ -n "${YSFX_KEEP_UB:-}" ]]; then NULL_CHECKS=""; fi
+
 emcmake cmake -S "$ROOT/upstream/YSFLIGHT/src" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
+    "-DCMAKE_C_FLAGS=$NULL_CHECKS" "-DCMAKE_CXX_FLAGS=$NULL_CHECKS" \
     -DYSFLIGHT_WEB_PORT_DIR="$PORT_DIR" \
     -DYSFLIGHT_EMSCRIPTEN_LINK_OPTIONS="$LINK_OPTIONS" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
