@@ -484,6 +484,15 @@ test('close air support: the mission\'s tanks and aircraft exist on the other br
     const xm = await waitForBeacon(M.page, () => true, 5_000, 'M') as M2
     const xv = await waitForBeacon(V.page, (x) => (x as M2).peer!.groundCopies === xm.peer!.ownedGround || true, 5_000, 'V') as M2
     expect(gnd(xv).n).toBe(gnd(xm).n) // the copies must not be counted as the field's own
+    // A hit on a copy of a ground unit goes to its owner (injected: a dev hook sends it as V's).
+    for (let i = 0; i < 40; i++) {
+      await V.page.evaluate(() => (window as unknown as { __ysfxPeerTestHit: (p: number, gen?: number, cls?: number) => string }).__ysfxPeerTestHit(30, undefined, 1))
+      await V.page.waitForTimeout(150)
+      if ((await waitForBeacon(M.page, () => true, 5_000, 'M') as M2).peer!.ownedGround < xm.peer!.ownedGround) break
+    }
+    const m2 = await waitForBeacon(M.page, (x) => (x as M2).peer!.ownedGround < xm.peer!.ownedGround, 15_000, 'a ground unit goes down on its owner') as M2
+    const v2 = await waitForBeacon(V.page, (x) => (x as M2).peer!.groundCopies === m2.peer!.ownedGround, 15_000, 'and on V') as M2
+    console.log(`[cas] injected hits on a ground unit: M owns ${xm.peer!.ownedGround} -> ${m2.peer!.ownedGround} ground units, V has ${v2.peer!.groundCopies} copies; score on V ${JSON.stringify((v2 as unknown as { peer: { sky: { scores: unknown } } }).peer.sky.scores)}`)
     await M.page.evaluate(() => (window as unknown as { __ysfxNetCommand: (c: number) => string }).__ysfxNetCommand(14))
     const end = await waitForBeacon(V.page, (x) => (x as M2).peer!.groundCopies === 0, 20_000, 'the copies go with the mission') as M2
     console.log(`[cas] terminated: V has ${end.peer!.groundCopies} ground copies, ${end.peer!.peers} aircraft copies; field ground on V ${JSON.stringify([gnd(end).n, gnd(end).dead, gnd(end).damage])}`)
@@ -581,6 +590,7 @@ test('three tabs: the third watches one shoot the other down, and all three (and
     const wDown = await waitForBeacon(W.page, (x) => !x.aircraft.some((q) => q.alive && /T$/.test(q.name)), 30_000, 'the watcher sees T go down')
     await S.page.keyboard.up('Shift'); await S.page.keyboard.up('a')
     const scores = await Promise.all([T, S, W].map((t) => waitForBeacon(t.page, (x) => sky2(x).kills > 0, 10_000, 'the kill is counted')))
+    if (process.env.YSFX_SHOTS) { await T.page.screenshot({ path: `${process.env.YSFX_SHOTS}/three-t-after.png` }); await T.page.waitForTimeout(4000); await T.page.screenshot({ path: `${process.env.YSFX_SHOTS}/three-t-after-4s.png` }); await W.page.screenshot({ path: `${process.env.YSFX_SHOTS}/three-w-after.png` }) }
     console.log(`[three] the watcher saw T go down (it still sees S: ${wDown.aircraft.some((q) => q.alive && /S$/.test(q.name))}); score on T ${JSON.stringify(sky2(scores[0]).scores)} | on S ${JSON.stringify(sky2(scores[1]).scores)} | on the watcher ${JSON.stringify(sky2(scores[2]).scores)}`)
     expect(JSON.stringify(sky2(scores[2]).scores)).toBe(JSON.stringify(sky2(scores[0]).scores))
     expect(JSON.stringify(sky2(scores[1]).scores)).toBe(JSON.stringify(sky2(scores[0]).scores))
@@ -628,6 +638,64 @@ test('intercept mission: its aircraft exist on the other browser where their own
     console.log(`[intercept] terminated: V shows no mission and no mission aircraft`)
   } finally { await M.ctx.close(); await V.ctx.close() }
 })
+
+test('flares, bombs and rockets launched by one tab are replayed on the other', async ({ browser }) => {
+  test.setTimeout(300_000)
+  const sky = `lch${Date.now() % 100000}`
+  const T = await openTab(browser, sky, 'T'), S = await openTab(browser, sky, 'S')
+  const L = (x: Beacon) => (x as unknown as AirP).peer!.launches
+  try {
+    await T.page.evaluate(go, ['F-16C_FIGHTINGFALCON', 'NORTH10000_01'])
+    await waitForBeacon(T.page, (x) => !!mine(x), 40_000, 'T out')
+    // Four bombs and a rocket pod for the shooter (FSWEAPONTYPE 3 and 4), on top of the default load.
+    await S.page.evaluate(() => (window as unknown as { __ysfxLoadout: (a: string, c: Array<[number, number]>) => unknown }).__ysfxLoadout('F-16C_FIGHTINGFALCON', [[3, 4], [4, 19]]))
+    await S.page.evaluate(go, ['F-16C_FIGHTINGFALCON', 'SOUTH10000_01'])
+    await waitForBeacon(S.page, (x) => !!mine(x) && !!other(x) && x.seat !== null, 40_000, 'S out')
+    await S.page.mouse.click(640, 360)
+    for (const [label, re] of [['flare', /FLARE|FLR/], ['bomb', /BOMB|B500|B250/], ['rocket', /RKT/]] as Array<[string, RegExp]>) {
+      await selectWeapon(S.page, re)
+      const sel = (await waitForBeacon(S.page, () => true, 5_000, 'S')).hud?.[2] ?? ''
+      const s0 = L(await waitForBeacon(S.page, () => true, 5_000, 'S')).out, t0 = L(await waitForBeacon(T.page, () => true, 5_000, 'T')).shown
+      if (!re.test(sel)) { console.log(`[launch] ${label}: could not be selected (the weapon line reads "${sel}"): not tried`); continue }
+      for (let i = 0; i < 2; i++) { await S.page.keyboard.down('Shift'); await S.page.waitForTimeout(250); await S.page.keyboard.up('Shift'); await S.page.waitForTimeout(900) }
+      await S.page.waitForTimeout(800)
+      const s1 = L(await waitForBeacon(S.page, () => true, 5_000, 'S')).out, t1 = L(await waitForBeacon(T.page, () => true, 5_000, 'T')).shown
+      console.log(`[launch] ${label} ("${sel}"): S told ${s1 - s0}, T's engine replayed ${t1 - t0}`)
+      expect(t1 - t0).toBe(s1 - s0)
+    }
+    console.log(`[launch] both still flying: S ${!!mine(await waitForBeacon(S.page, () => true, 5_000, 'S'))}, T ${!!mine(await waitForBeacon(T.page, () => true, 5_000, 'T'))}`)
+  } finally { await T.ctx.close(); await S.ctx.close() }
+})
+
+test('the browser that runs the mission freezes without leaving: the next one takes it over', async ({ browser }) => {
+  test.setTimeout(300_000)
+  const sky = `frz${Date.now() % 100000}`
+  const A = await openTab(browser, sky, 'A'), Bt = await openTab(browser, sky, 'B')
+  try {
+    await waitForBeacon(Bt.page, (x) => sky2(x).roster.length === 1, 20_000, 'B sees A')
+    await cmd(A.page, 11)
+    const seen = await waitForBeacon(Bt.page, (x) => sky2(x).mission?.cmd === 11 && sky2(x).mission!.owner !== 0, 15_000, 'B shows A\'s mission')
+    await Bt.page.waitForTimeout(12_000)
+    // A's page stops dead (paused in the debugger): its connection stays open, nothing comes from it.
+    const cdp = await A.ctx.newCDPSession(A.page)
+    await cdp.send('Debugger.enable'); await cdp.send('Debugger.pause')
+    const t0 = Date.now()
+    const took = await waitForBeacon(Bt.page, (x) => sky2(x).mission?.cmd === 11 && sky2(x).mission!.owner === 0, 30_000, 'B takes the mission over')
+    console.log(`[freeze] A (sender ${sky2(seen).mission!.owner}) froze: B runs the mission after ${Date.now() - t0} ms with ${sky2(took).mission!.seconds} s left (took over ${sky2(took).adopted}x); B still sees A's aircraft copies: ${(took as S2).peer!.peers}`)
+    expect(sky2(took).mission!.seconds).toBeLessThan(892)
+    // A comes back: two browsers now run the mission, and the lower number's stays.
+    await cdp.send('Debugger.resume')
+    await Bt.page.waitForTimeout(8000)
+    const [xa, xb] = await Promise.all([waitForBeacon(A.page, () => true, 5_000, 'A'), waitForBeacon(Bt.page, () => true, 5_000, 'B')])
+    console.log(`[freeze] A is back: A shows ${JSON.stringify(sky2(xa).mission)}, B shows ${JSON.stringify(sky2(xb).mission)} (B yielded ${sky2(xb).yielded}x)`)
+    expect(sky2(xa).mission?.cmd).toBe(11); expect(sky2(xb).mission?.cmd).toBe(11)
+  } finally { await A.ctx.close(); await Bt.ctx.close() }
+})
+
+// Not tested: "a copy that dies here while its owner flies on is made again after two seconds" (the
+// engine's FsVrPeerDrain).  A weapon cannot set that up: the state a copy receives carries its owner's
+// damage, so a hit the owner ignores does not bring the copy down either (tried 2026-11-22 with the
+// owner throwing hits away: the copy flew on).  Only a copy running into something here would.
 
 test('for comparison, the way it is now (host + client over WebRTC): join time, and the host leaving', async ({ browser }) => {
   test.setTimeout(300_000)
