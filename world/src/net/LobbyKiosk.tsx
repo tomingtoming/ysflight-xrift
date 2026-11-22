@@ -25,6 +25,7 @@ import type { NetRole } from './NetSession'
 import { deliberate } from './clickGuard'
 import { SMOKE_COLORS, WEAPON_LABEL, loadoutChange, loadoutRevision, loadoutSetAircraft, loadoutSetFuel, loadoutSetSmoke, loadoutSetSmokeColor, readLoadout, smokeCode, type Loadout } from './loadout'
 import { HOST_DUTY, sessionHostName } from './roleStore'
+import { PEER_SKY, peerStatus } from './PeerLink'
 
 const PAGE = 10
 const PX = 0.001 // metres per pixel
@@ -170,7 +171,8 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
     if (hn !== hostName) setHostName(hn)
     const who = role === 'host' ? 'サーバ' : role === 'client' ? 'クライアント' : '接続中'
     const st = !ns.ready ? '準備中' : ns.waiting ? '参加承認待ち' : ns.state === NET_FLYING ? (seated ? '飛行中' : '機体を置いて待機（飛行開始で乗り換え）') : '待機'
-    setStatus(`${who}  部屋 ${room ?? '-'}  ${st}  接続 ${ns.connected}${rejectNote}`)
+    // Peer sky: there is no room to join and nobody connects to this engine; who is here is what matters.
+    setStatus(PEER_SKY ? `${st}  ここにいる人 ${peerStatus.sky.roster.length + 1}` : `${who}  部屋 ${room ?? '-'}  ${st}  接続 ${ns.connected}${rejectNote}`)
     setCanStart(ns.ready && !ns.waiting && (ns.state !== NET_FLYING || !seated))
     const pj = pendingJoin()
     if (pj && ns.ready && !ns.waiting && ns.state !== NET_FLYING) {
@@ -361,7 +363,12 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
       <Container sizeX={W * PX} sizeY={H * PX} pixelSize={PX} backgroundColor={0x101418} borderRadius={20} padding={28}
         flexDirection="column" gap={18} fontFamilies={fontFamilies}>
         <Text fontSize={40} color={0xffffff} fontFamily="ja">{`YSFLIGHT 対戦ロビー - ${field}`}</Text>
-        {role === 'host' ? (
+        {PEER_SKY ? (
+          <Container flexDirection="column" paddingX={20} paddingY={10} borderRadius={12} backgroundColor={0x1f4f7a} gap={2}>
+            <Text fontSize={34} color={0xffffff} fontFamily="ja">ここにいる全員が同じ空を飛びます</Text>
+            <Text fontSize={24} color={0xcfe6ff} fontFamily="ja">サーバ役の人はいません。だれかが抜けても、ほかの人はそのまま飛べます。</Text>
+          </Container>
+        ) : role === 'host' ? (
           <Container flexDirection="column" paddingX={20} paddingY={10} borderRadius={12} backgroundColor={0x8a4b00} gap={2}>
             <Text fontSize={34} color={0xffffff} fontFamily="ja">あなたのブラウザがサーバ（ホスト）です</Text>
             <Text fontSize={24} color={0xffe2b8} fontFamily="ja">{HOST_DUTY}</Text>
@@ -373,7 +380,7 @@ export function LobbyKiosk({ position, yaw = 0, role, room, defaultAir = 'F-16C_
         <Container flexDirection="row" gap={28} flexGrow={1}>
           {list('機体', airs, pageAir, airPages, selAir, setSelAir, setPageAir)}
           {list('スタート地点', stps, pageStp, stpPages, selStp, setSelStp, setPageStp, stpItemRefs.current)}
-          {list(onField ? 'フィールド（ホスト）' : 'フィールド', fields, pageFld, fldPages, field, chooseField, setPageFld, fieldItemRefs.current)}
+          {list(PEER_SKY ? 'フィールド（だれでも変更可）' : onField ? 'フィールド（ホスト）' : 'フィールド', fields, pageFld, fldPages, field, chooseField, setPageFld, fieldItemRefs.current)}
           {loading}
         </Container>
         <Container flexDirection="row" alignItems="center" justifyContent="space-between">

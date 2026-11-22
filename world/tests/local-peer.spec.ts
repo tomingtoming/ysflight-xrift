@@ -490,9 +490,19 @@ test('close air support: the mission\'s tanks and aircraft exist on the other br
       await V.page.waitForTimeout(150)
       if ((await waitForBeacon(M.page, () => true, 5_000, 'M') as M2).peer!.ownedGround < xm.peer!.ownedGround) break
     }
-    const m2 = await waitForBeacon(M.page, (x) => (x as M2).peer!.ownedGround < xm.peer!.ownedGround, 15_000, 'a ground unit goes down on its owner') as M2
-    const v2 = await waitForBeacon(V.page, (x) => (x as M2).peer!.groundCopies === m2.peer!.ownedGround, 15_000, 'and on V') as M2
-    console.log(`[cas] injected hits on a ground unit: M owns ${xm.peer!.ownedGround} -> ${m2.peer!.ownedGround} ground units, V has ${v2.peer!.groundCopies} copies; score on V ${JSON.stringify((v2 as unknown as { peer: { sky: { scores: unknown } } }).peer.sky.scores)}`)
+    const m2 = await waitForBeacon(M.page, (x) => (x as M2).peer!.ownedGround < xm.peer!.ownedGround || sky2(x).kills > 0, 15_000, 'a ground unit goes down on its owner') as M2
+    // The mission keeps making new units, so the count moves: compare the two tabs as read together.
+    let same: [number, number] | null = null
+    const counts: string[] = []
+    for (let i = 0; i < 30 && !same; i++) {
+      await V.page.waitForTimeout(500)
+      const [a, b] = await Promise.all([waitForBeacon(M.page, () => true, 5_000, 'M'), waitForBeacon(V.page, () => true, 5_000, 'V')]) as M2[]
+      counts.push(`${a.peer!.ownedGround}/${b.peer!.groundCopies}`)
+      if (a.peer!.ownedGround === b.peer!.groundCopies) same = [a.peer!.ownedGround, b.peer!.groundCopies]
+    }
+    const v2 = await waitForBeacon(V.page, () => true, 5_000, 'V') as M2
+    console.log(`[cas] injected hits on ground units: M counted ${sky2(m2).kills} brought down so far; then M owns / V has copies of: ${counts.slice(-6).join(' ')}; lost on V's score board: ${Object.values(sky2(v2).scores).reduce((n, r) => n + r.losses, 0)}`)
+    expect(same).toBeTruthy()
     await M.page.evaluate(() => (window as unknown as { __ysfxNetCommand: (c: number) => string }).__ysfxNetCommand(14))
     const end = await waitForBeacon(V.page, (x) => (x as M2).peer!.groundCopies === 0, 20_000, 'the copies go with the mission') as M2
     console.log(`[cas] terminated: V has ${end.peer!.groundCopies} ground copies, ${end.peer!.peers} aircraft copies; field ground on V ${JSON.stringify([gnd(end).n, gnd(end).dead, gnd(end).damage])}`)
@@ -696,6 +706,117 @@ test('the browser that runs the mission freezes without leaving: the next one ta
 // engine's FsVrPeerDrain).  A weapon cannot set that up: the state a copy receives carries its owner's
 // damage, so a hit the owner ignores does not bring the copy down either (tried 2026-11-22 with the
 // owner throwing hits away: the copy flew on).  Only a copy running into something here would.
+
+test('a target that rolls and dives: how far off is the picture of it', async ({ browser }) => {
+  test.setTimeout(300_000)
+  const { t, sh, close } = await airPair(browser, `trn${Date.now() % 100000}`, 2500)
+  try {
+    // T rolls hard and pulls while it dives (key presses move the stick in steps; a clean level turn it is not).
+    await waitForBeacon(t, (x) => x.seat !== null, 20_000, 'T seated')
+    await t.mouse.click(640, 360)
+    for (let i = 0; i < 20; i++) await t.keyboard.press('q')
+    const stick = async () => ((await waitForBeacon(t, () => true, 5_000, 'T')).ctl ?? []).slice(1, 3).map((v) => +v.toFixed(2))
+    for (let i = 0; i < 22; i++) { await t.keyboard.press('ArrowRight'); await t.waitForTimeout(40) }
+    console.log(`[turn] T's stick after rolling right: [aileron, elevator] ${JSON.stringify(await stick())}`)
+    await t.waitForTimeout(1300)
+    for (let i = 0; i < 11; i++) { await t.keyboard.press('ArrowLeft'); await t.waitForTimeout(40) } // back to the middle: the bank stays
+    for (let i = 0; i < 16; i++) { await t.keyboard.press('ArrowDown'); await t.waitForTimeout(40) }
+    console.log(`[turn] T's stick while pulling: ${JSON.stringify(await stick())}`)
+    await t.waitForTimeout(1000)
+    const [truth, seen] = await Promise.all([series(t, true, 5000), series(sh, false, 5000)])
+    const at = (ms: number) => { const k = truth.findIndex((q) => q.t >= ms); if (k < 1) return null; const a = truth[k - 1], b = truth[k], f = (ms - a.t) / (b.t - a.t); return [0, 1, 2].map((n) => a.pos[n] + (b.pos[n] - a.pos[n]) * f) }
+    const err = (shift: number) => { const e: number[] = []; for (const sm of seen) { const p = at(sm.t - shift); if (p) e.push(d3(p, sm.pos)) } e.sort((x, y) => x - y); return e.length ? { med: e[e.length >> 1], max: e[e.length - 1], n: e.length } : null }
+    // Heading change of the truth over the window, to say how hard the turn was.
+    const hd = (a: number[], b: number[]) => Math.atan2(b[0] - a[0], b[2] - a[2]) * 180 / Math.PI
+    const turned = truth.length > 10 ? Math.abs(((hd(truth[truth.length - 6].pos, truth[truth.length - 1].pos) - hd(truth[0].pos, truth[5].pos) + 540) % 360) - 180) : NaN
+    const climbed = truth.length ? truth[truth.length - 1].pos[1] - truth[0].pos[1] : NaN
+    const now = err(0)
+    let best = { shift: 0, med: now?.med ?? Infinity }
+    for (let sft = 0; sft <= 500; sft += 10) { const e = err(sft); if (e && e.med < best.med) best = { shift: sft, med: e.med } }
+    const sp = truth.length > 1 ? d3(truth[0].pos, truth[truth.length - 1].pos) / ((truth[truth.length - 1].t - truth[0].t) / 1000) : NaN
+    console.log(`[turn] T turned ${turned.toFixed(0)} deg and changed altitude by ${climbed.toFixed(0)} m in 5 s at ~${sp.toFixed(0)} m/s (lag setting: ${process.env.YSFX_LAG ?? 'none'})`)
+    console.log(`[turn] S's picture against where T really was at that moment: median ${now?.med.toFixed(1)} m, worst ${now?.max.toFixed(1)} m (${now?.n} samples); it matches T as of ${best.shift} ms earlier to within ${best.med.toFixed(1)} m (median)`)
+  } finally { await close() }
+})
+
+test('six tabs: everyone sees everyone, and what each one sends', async ({ browser }) => {
+  test.setTimeout(400_000)
+  const sky = `six${Date.now() % 100000}`
+  const N = 6
+  const tabs = []
+  for (let k = 0; k < N; k++) tabs.push(await openTab(browser, sky, `P${k}`))
+  try {
+    const stp = ['RW01_01', 'RW01_02', 'RW01_03', 'RW01_04', 'RW01_05', 'RW01_06']
+    if (process.env.YSFX_SHOTS) { await tabs[1].page.waitForTimeout(2500); await tabs[1].page.screenshot({ path: `${process.env.YSFX_SHOTS}/kiosk-peer.png` }) }
+    for (const [k, t] of tabs.entries()) await t.page.evaluate(go, ['F-16C_FIGHTINGFALCON', stp[k]])
+    const seen = await Promise.all(tabs.map((t, k) => waitForBeacon(t.page, (x) => !!mine(x) && x.aircraft.filter((q) => q.alive && !q.player).length === N - 1, 60_000, `P${k} sees the other five`)))
+    console.log(`[six] every tab sees ${JSON.stringify(seen.map((x) => x.aircraft.filter((q) => q.alive && !q.player).length))} others; names on P0: ${JSON.stringify(seen[0].aircraft.filter((q) => !q.player).map((q) => q.name.slice(-2)).sort())}`)
+    const b0 = await Promise.all(tabs.map((t) => waitForBeacon(t.page, () => true, 5_000, 'b') as Promise<B>))
+    await tabs[0].page.waitForTimeout(10_000)
+    const b1 = await Promise.all(tabs.map((t, k) => waitForBeacon(t.page, (x) => x.t > b0[k].t + 8000, 10_000, 'b') as Promise<B>))
+    console.log(`[six] parked, P0 sends ${rate(b0[0], b1[0])}`)
+    const sim = b1.map((x) => (x.gauge?.now as unknown as { simMs: number; fps: number } | null))
+    console.log(`[six] engine step time per tab (ms): ${JSON.stringify(sim.map((g) => g ? +g.simMs.toFixed(2) : null))}; fps ${JSON.stringify(sim.map((g) => g ? Math.round(g.fps) : null))}`)
+    // One leaves: the other five go on and see four.
+    await tabs[0].ctx.close()
+    const after = await Promise.all(tabs.slice(1).map((t, k) => waitForBeacon(t.page, (x) => !!mine(x) && x.aircraft.filter((q) => q.alive && !q.player).length === N - 2, 20_000, `P${k + 1} sees four`)))
+    console.log(`[six] P0 left: the others see ${JSON.stringify(after.map((x) => x.aircraft.filter((q) => q.alive && !q.player).length))} and all still fly`)
+  } finally { for (const t of tabs) await t.ctx.close().catch(() => {}) }
+})
+
+test('engine step time: everyone a server (peer sky) against host and client (now)', async ({ browser }) => {
+  test.setTimeout(400_000)
+  const g = (x: Beacon) => x.gauge?.now as unknown as { simMs: number; drawMs: number; fps: number } | null
+  const settle = async (pages: Array<import('@playwright/test').Page>) => { await pages[0].waitForTimeout(12_000); return Promise.all(pages.map((p) => waitForBeacon(p, (x) => !!g(x), 10_000, 'gauge'))) }
+  // Peer sky: two tabs, both out, parked.
+  const sky = `stp${Date.now() % 100000}`
+  const A = await openTab(browser, sky, 'A'), Bt = await openTab(browser, sky, 'B')
+  try {
+    await A.page.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_01']); await Bt.page.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_02'])
+    await waitForBeacon(A.page, (x) => !!mine(x) && !!other(x), 40_000, 'A'); await waitForBeacon(Bt.page, (x) => !!mine(x) && !!other(x), 40_000, 'B')
+    const [a, b] = await settle([A.page, Bt.page])
+    console.log(`[step] peer sky, two parked: step ${g(a)!.simMs.toFixed(2)} / ${g(b)!.simMs.toFixed(2)} ms, draw ${g(a)!.drawMs.toFixed(2)} / ${g(b)!.drawMs.toFixed(2)} ms`)
+  } finally { await A.ctx.close(); await Bt.ctx.close() }
+  // Now: host + client over WebRTC, the same two aircraft.
+  const room = String(10000000 + (Date.now() % 89999999))
+  const ctxH = await browser.newContext(); const h = await ctxH.newPage(); await watchBeacon(h)
+  const ctxC = await browser.newContext(); const c = await ctxC.newPage(); await watchBeacon(c)
+  try {
+    await h.goto(`http://localhost:5173/?ysfxnet=host:${room}`)
+    await waitForBeacon(h, (x) => !!x.lobby && x.lobby[0] > 10, 90_000, 'host lobby')
+    await c.goto(`http://localhost:5173/?ysfxnet=client:${room}`)
+    await waitForBeacon(c, (x) => x.role === 'client' && !!x.net && x.net.ready && !!x.lobby && x.lobby[0] > 10, 90_000, 'client lobby')
+    await h.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_01']); await waitForBeacon(h, (x) => !!mine(x), 40_000, 'host out')
+    await c.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_02']); await waitForBeacon(c, (x) => !!mine(x) && !!other(x), 40_000, 'client out')
+    const [hh, cc] = await settle([h, c])
+    console.log(`[step] host + client, two parked: host step ${g(hh)!.simMs.toFixed(2)} ms, client step ${g(cc)!.simMs.toFixed(2)} ms; draw ${g(hh)!.drawMs.toFixed(2)} / ${g(cc)!.drawMs.toFixed(2)} ms`)
+  } finally { await ctxC.close(); await ctxH.close() }
+})
+
+test('close air support, to the end: what the mission\'s tanks destroy is destroyed on the other browser', async ({ browser }) => {
+  // Long (the tanks drive for minutes before they are in range): runs only with YSFX_LONG=1.
+  test.skip(!process.env.YSFX_LONG, 'set YSFX_LONG=1 to run')
+  test.setTimeout(1_200_000)
+  const sky = `cal${Date.now() % 100000}`
+  const M = await openTab(browser, sky, 'M'), V = await openTab(browser, sky, 'V')
+  try {
+    await M.page.evaluate(go, ['F-16C_FIGHTINGFALCON', 'RW01_01'])
+    await waitForBeacon(M.page, (x) => !!mine(x), 40_000, 'M out')
+    await cmd(M.page, 13)
+    await waitForBeacon(M.page, (x) => ((x as M2).peer?.ownedGround ?? 0) > 0, 60_000, 'the mission makes ground units')
+    let hit = false
+    for (let i = 0; i < 100 && !hit; i++) {
+      await M.page.waitForTimeout(10_000)
+      const [xm, xv] = await Promise.all([waitForBeacon(M.page, () => true, 5_000, 'M'), waitForBeacon(V.page, () => true, 5_000, 'V')]) as S2[]
+      hit = gnd(xm).damage > 0
+      if (hit || i % 6 === 5) console.log(`[cas-long] +${(i + 1) * 10}s: M owns ${xm.peer!.owned} (${xm.peer!.ownedGround} ground) at ${JSON.stringify(xm.peer!.groundPos.owned.slice(0, 2).map((o) => o.map(Math.round)))} | V copies ${xv.peer!.groundCopies} | field ground [dead, damage] M ${JSON.stringify([gnd(xm).dead, gnd(xm).damage])} (told ${gnd(xm).hitsOut}) V ${JSON.stringify([gnd(xv).dead, gnd(xv).damage])} (took ${gnd(xv).hitsIn}) | M's aircraft launches told ${(xm as unknown as AirP).peer!.launches.out} | M's player ${mine(xm) ? 'alive' : 'down'}`)
+    }
+    if (!hit) { console.log('[cas-long] nothing of the field was hit within the time: not observed'); return }
+    const xm = await waitForBeacon(M.page, () => true, 5_000, 'M') as S2
+    const xv = await waitForBeacon(V.page, (x) => gnd(x).damage === gnd(xm).damage && gnd(x).dead === gnd(xm).dead, 20_000, 'V has the same') as S2
+    console.log(`[cas-long] the field was hit: [dead, damage] on M ${JSON.stringify([gnd(xm).dead, gnd(xm).damage])}, on V ${JSON.stringify([gnd(xv).dead, gnd(xv).damage])}`)
+  } finally { await M.ctx.close(); await V.ctx.close() }
+})
 
 test('for comparison, the way it is now (host + client over WebRTC): join time, and the host leaving', async ({ browser }) => {
   test.setTimeout(300_000)

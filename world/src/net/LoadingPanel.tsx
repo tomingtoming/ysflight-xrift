@@ -18,6 +18,7 @@ import { useDefaultFont } from '@xrift/world-components'
 import { useRef, useState } from 'react'
 import { useLoad } from '../engine/loadStore'
 import { HOST_DUTY, connectStatus, sessionHostName, sessionRole } from './roleStore'
+import { PEER_SKY } from './PeerLink'
 
 const PX = 0.001
 const W = 1500
@@ -62,7 +63,7 @@ export function LoadingPanel({ position, yaw, field }: { position: [number, numb
         {conn && !conn.failed && conn.tries > 0 ? (
           <Text fontSize={34} color={0xffc070} fontFamily="ja">{`ホストにつながらないので、やり直しています（${conn.tries + 1}/${conn.max} 回目）`}</Text>
         ) : null}
-        {role === 'host' ? (
+        {role === 'host' && !PEER_SKY ? (
           <Container flexDirection="column" paddingX={24} paddingY={12} borderRadius={14} backgroundColor={0x8a4b00} gap={4}>
             <Text fontSize={42} color={0xffffff} fontFamily="ja">あなたのブラウザがサーバ（ホスト）になりました</Text>
             <Text fontSize={28} color={0xffe2b8} fontFamily="ja">{HOST_DUTY}</Text>

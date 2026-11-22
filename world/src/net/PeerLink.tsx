@@ -58,6 +58,9 @@ const MISSION_MS = 1000
 const ALIVE_MS = 2000
 const ROSTER_MS = 5000
 
+/** Peer sky is on for this page (dev: ?ysfxpeer=): nobody is the server, and the panels must not say someone is. */
+export const PEER_SKY = import.meta.env.DEV && typeof location !== 'undefined' && /[?&]ysfxpeer=/.test(location.search)
+
 /** What the test beacon reports about the link. */
 export const peerStatus = {
   room: null as string | null, open: false, self: 0, sent: 0, got: 0, peers: 0, firstGotAt: 0, hitsOut: 0, hitsIn: 0, hitsDropped: 0,

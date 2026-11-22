@@ -12,6 +12,7 @@ import { useRef, useState } from 'react'
 import { HUD_H, HUD_W } from '../engine/hudTarget'
 import { sessionRole } from './roleStore'
 import type { EyeOffset } from './seatEye'
+import { PEER_SKY } from './PeerLink'
 
 const PX = 0.001
 const DIST = 1.4 // the glass's distance (HudGlass)
@@ -27,7 +28,7 @@ export function HostBadge({ eye }: { eye: EyeOffset }) {
     const h = sessionRole() === 'host'
     if (h !== host) setHost(h)
   })
-  if (!host) return null
+  if (!host || PEER_SKY) return null // peer sky: nobody is the server
   const glassH = (2 * 0.45 * DIST * HUD_H) / HUD_W
   return (
     <group position={[0, eye.dy + glassH / 2 + 0.035, eye.dz - DIST]}>
